@@ -142,6 +142,19 @@ worktree 是带有 Git 检出来源信息的普通 Herdr 工作区。`worktree c
 
 Git 默认拒绝由其他用户拥有的仓库。如果你已独立验证该仓库,可传入 `--trust-repository`,仅在本次命令中信任解析后的仓库路径。Herdr 不会修改你的 Git 配置。
 
+## tmux 会话
+
+```bash
+herdr tmux list
+herdr tmux attach <session> [--label TEXT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]
+```
+
+`tmux list` 列出运行 Herdr 服务器的机器上默认 tmux 服务器中的会话。每个条目报告窗口数、已连接的 tmux 客户端数、会话路径,以及在已有 Herdr 工作区连接到该会话时的 `open_workspace_id`。
+
+`tmux attach` 创建一个工作区,其根窗格对指定会话运行 `tmux attach-session`。工作区标签默认为 `tmux:<session>`,工作目录默认为会话路径。连接一个已经有 Herdr 工作区的会话时,会聚焦该工作区并返回 `already_open: true`,而不是创建第二个。在窗格内从 tmux 分离后,该窗格保留一个普通 shell。Herdr 会持久化连接命令,因此会话恢复时会重新连接同一个 tmux 会话。
+
+会话名必须完全匹配,且不能包含 `:`、`.` 或空白。
+
 ## 标签页
 
 ```bash

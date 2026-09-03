@@ -1097,6 +1097,12 @@
               "minimum": 0,
               "type": "integer"
             },
+            "tmux_session": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "tokens": {
               "additionalProperties": {
                 "type": "string"
@@ -4411,6 +4417,39 @@
           ],
           "type": "object"
         },
+        "TmuxAttachParams": {
+          "properties": {
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "focus": {
+              "default": false,
+              "type": "boolean"
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session"
+          ],
+          "type": "object"
+        },
         "ToastHerdrPosition": {
           "enum": [
             "top-left",
@@ -5143,6 +5182,38 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/WorktreeRemoveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "tmux.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "tmux.attach",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TmuxAttachParams"
             }
           },
           "required": [
@@ -9294,6 +9365,57 @@
             },
             {
               "properties": {
+                "sessions": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/TmuxSessionInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "tmux_session_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sessions"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "already_open": {
+                  "type": "boolean"
+                },
+                "root_pane": {
+                  "$ref": "#/schemas/success_response/$defs/PaneInfo"
+                },
+                "session": {
+                  "$ref": "#/schemas/success_response/$defs/TmuxSessionInfo"
+                },
+                "tab": {
+                  "$ref": "#/schemas/success_response/$defs/TabInfo"
+                },
+                "type": {
+                  "const": "tmux_attached",
+                  "type": "string"
+                },
+                "workspace": {
+                  "$ref": "#/schemas/success_response/$defs/WorkspaceInfo"
+                }
+              },
+              "required": [
+                "type",
+                "workspace",
+                "tab",
+                "root_pane",
+                "session",
+                "already_open"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "root_pane": {
                   "$ref": "#/schemas/success_response/$defs/PaneInfo"
                 },
@@ -10612,6 +10734,49 @@
           ],
           "type": "object"
         },
+        "TmuxSessionInfo": {
+          "properties": {
+            "attached": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "created_unix": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "open_workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "windows": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "windows",
+            "attached"
+          ],
+          "type": "object"
+        },
         "WorkspaceInfo": {
           "properties": {
             "active_tab_id": {
@@ -10640,6 +10805,12 @@
               "format": "uint",
               "minimum": 0,
               "type": "integer"
+            },
+            "tmux_session": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "tokens": {
               "additionalProperties": {

@@ -18,6 +18,7 @@ use super::plugins::{
 use super::server::ServerCapabilities;
 use super::session::SessionSnapshot;
 use super::tabs::TabInfo;
+use super::tmux::TmuxSessionInfo;
 use super::workspaces::WorkspaceInfo;
 use super::worktrees::{WorktreeInfo, WorktreeSourceInfo};
 
@@ -65,6 +66,16 @@ pub enum ResponseResult {
     WorktreeList {
         source: WorktreeSourceInfo,
         worktrees: Vec<WorktreeInfo>,
+    },
+    TmuxSessionList {
+        sessions: Vec<TmuxSessionInfo>,
+    },
+    TmuxAttached {
+        workspace: WorkspaceInfo,
+        tab: TabInfo,
+        root_pane: PaneInfo,
+        session: TmuxSessionInfo,
+        already_open: bool,
     },
     WorktreeCreated {
         workspace: WorkspaceInfo,

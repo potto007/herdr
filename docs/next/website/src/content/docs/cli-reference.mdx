@@ -146,6 +146,19 @@ Worktrees are normal Herdr workspaces with Git checkout provenance. `worktree cr
 
 Git rejects repositories owned by another user by default. If you have independently verified the repository, pass `--trust-repository` to trust its resolved path for that command only. Herdr does not change your Git configuration.
 
+## tmux sessions
+
+```bash
+herdr tmux list
+herdr tmux attach <session> [--label TEXT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]
+```
+
+`tmux list` lists the sessions on the default tmux server of the machine that runs the Herdr server. Each entry reports the window count, the number of attached tmux clients, the session path, and `open_workspace_id` when a Herdr workspace is already attached to it.
+
+`tmux attach` creates a workspace whose root pane runs `tmux attach-session` against the named session. The workspace label defaults to `tmux:<session>`, and the working directory defaults to the session path. Attaching a session that already has a Herdr workspace focuses that workspace and returns `already_open: true` instead of creating a second one. Detaching from tmux inside the pane leaves a normal shell in that pane. Herdr persists the attach command, so a session restore re-attaches the same tmux session.
+
+The session name must match exactly and must not contain `:`, `.`, or whitespace.
+
 ## Tabs
 
 ```bash

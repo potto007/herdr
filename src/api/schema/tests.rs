@@ -805,6 +805,7 @@ fn worktree_request_and_response_round_trip() {
                     checkout_path: "/worktrees/herdr/worktree-api".into(),
                     is_linked_worktree: true,
                 }),
+                tmux_session: None,
             },
             tab: TabInfo {
                 tab_id: "w_1:1".into(),
@@ -891,6 +892,7 @@ fn worktree_lifecycle_events_round_trip() {
             checkout_path: "/worktrees/herdr/worktree-api".into(),
             is_linked_worktree: true,
         }),
+        tmux_session: None,
     };
     let worktree = WorktreeInfo {
         path: "/worktrees/herdr/worktree-api".into(),
@@ -1429,4 +1431,55 @@ fn popup_close_request_round_trips() {
 
     assert_eq!(json["method"], "popup.close");
     assert_eq!(json["params"], serde_json::json!({}));
+}
+
+#[test]
+fn tmux_requests_and_responses_round_trip() {
+    let request = Request {
+        id: "req_tmux".into(),
+        method: Method::TmuxAttach(TmuxAttachParams {
+            session: "api".into(),
+            focus: true,
+            label: None,
+            cwd: None,
+            env: HashMap::new(),
+        }),
+    };
+    let json = serde_json::to_string(&request).unwrap();
+    assert!(json.contains("\"method\":\"tmux.attach\""));
+    assert!(!json.contains("\"label\""));
+    let restored: Request = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, request);
+
+    let list = Request {
+        id: "req_tmux_list".into(),
+        method: Method::TmuxList(EmptyParams::default()),
+    };
+    let json = serde_json::to_string(&list).unwrap();
+    assert!(json.contains("\"method\":\"tmux.list\""));
+    let restored: Request = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, list);
+
+    let response = SuccessResponse {
+        id: "req_tmux_list".into(),
+        result: ResponseResult::TmuxSessionList {
+            sessions: vec![TmuxSessionInfo {
+                name: "api".into(),
+                windows: 3,
+                attached: 1,
+                created_unix: Some(1_725_000_000),
+                path: Some("/home/me/api".into()),
+                open_workspace_id: Some("w_2".into()),
+            }],
+        },
+    };
+    let json = serde_json::to_string(&response).unwrap();
+    let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored, response);
+
+    let legacy_workspace: WorkspaceInfo = serde_json::from_str(
+        r#"{"workspace_id":"w_1","number":1,"label":"x","focused":false,"pane_count":1,"tab_count":1,"active_tab_id":"w_1:1","agent_status":"unknown"}"#,
+    )
+    .unwrap();
+    assert_eq!(legacy_workspace.tmux_session, None);
 }

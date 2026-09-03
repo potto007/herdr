@@ -34,6 +34,7 @@ pub(super) fn command() -> Command {
         .subcommand(api_command())
         .subcommand(workspace_command())
         .subcommand(worktree_command())
+        .subcommand(tmux_command())
         .subcommand(tab_command())
         .subcommand(notification_command())
         .subcommand(agent_command())
@@ -272,6 +273,22 @@ fn worktree_command() -> Command {
                 .arg(option("workspace", "ID"))
                 .arg(flag("force"))
                 .arg(flag("trust-repository")),
+        )
+}
+
+fn tmux_command() -> Command {
+    Command::new("tmux")
+        .about("Attach tmux sessions as workspaces")
+        .subcommand(Command::new("list").about("List tmux sessions visible to the server"))
+        .subcommand(
+            Command::new("attach")
+                .about("Attach a tmux session as a workspace")
+                .arg(Arg::new("session").value_name("SESSION").required(true))
+                .arg(option("label", "TEXT"))
+                .arg(path_option("cwd", "PATH"))
+                .arg(env_option())
+                .arg(flag("focus"))
+                .arg(flag("no-focus")),
         )
 }
 

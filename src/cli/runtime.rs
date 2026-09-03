@@ -2,8 +2,9 @@ use crate::api::schema::{
     EmptyParams, Method, PaneFocusDirectionParams, PaneInputSetParams, PaneMoveParams,
     PaneRenameParams, PaneResizeParams, PaneSplitParams, PaneSwapParams, PaneTarget,
     PaneZoomParams, Request, TabCreateParams, TabListParams, TabRenameParams, TabTarget,
-    WorkspaceCloseParams, WorkspaceCreateParams, WorkspaceRenameParams, WorkspaceTarget,
-    WorktreeCreateParams, WorktreeListParams, WorktreeOpenParams, WorktreeRemoveParams,
+    TmuxAttachParams, WorkspaceCloseParams, WorkspaceCreateParams, WorkspaceRenameParams,
+    WorkspaceTarget, WorktreeCreateParams, WorktreeListParams, WorktreeOpenParams,
+    WorktreeRemoveParams,
 };
 
 fn print_method_response(id: &'static str, method: Method) -> std::io::Result<i32> {
@@ -22,6 +23,14 @@ pub(super) fn workspace_list() -> std::io::Result<i32> {
 
 pub(super) fn workspace_create(params: WorkspaceCreateParams) -> std::io::Result<i32> {
     print_method_response("cli:workspace:create", Method::WorkspaceCreate(params))
+}
+
+pub(super) fn tmux_list() -> std::io::Result<i32> {
+    print_method_response("cli:tmux:list", Method::TmuxList(EmptyParams::default()))
+}
+
+pub(super) fn tmux_attach(params: TmuxAttachParams) -> std::io::Result<i32> {
+    print_method_response("cli:tmux:attach", Method::TmuxAttach(params))
 }
 
 pub(super) fn workspace_get(workspace_id: String) -> std::io::Result<i32> {

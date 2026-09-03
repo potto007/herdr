@@ -11,6 +11,7 @@ pub(crate) mod plugins;
 pub(super) mod responses;
 mod session;
 mod tabs;
+mod tmux;
 mod workspaces;
 mod worktrees;
 
@@ -993,6 +994,8 @@ impl App {
             Method::WorkspaceCreate(params) => {
                 return self.handle_workspace_create(request.id, params);
             }
+            Method::TmuxList(_) => return self.handle_tmux_list(request.id),
+            Method::TmuxAttach(params) => return self.handle_tmux_attach(request.id, params),
             Method::WorkspaceFocus(target) => {
                 return self.handle_workspace_focus(request.id, target)
             }
