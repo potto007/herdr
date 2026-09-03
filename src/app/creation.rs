@@ -143,6 +143,16 @@ impl App {
             self.render_dirty.clone(),
             extra_env,
         )?;
+        Ok(self.install_new_workspace(ws, terminal, runtime, focus))
+    }
+
+    fn install_new_workspace(
+        &mut self,
+        ws: Workspace,
+        terminal: crate::terminal::TerminalState,
+        runtime: crate::terminal::TerminalRuntime,
+        focus: bool,
+    ) -> usize {
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.workspaces.push(ws);
@@ -157,7 +167,33 @@ impl App {
             self.state.mode = Mode::Terminal;
         }
         self.schedule_session_save();
-        Ok(idx)
+        idx
+    }
+
+    pub(crate) fn create_workspace_with_argv(
+        &mut self,
+        initial_cwd: PathBuf,
+        focus: bool,
+        argv: &[String],
+        extra_env: Vec<(String, String)>,
+    ) -> std::io::Result<usize> {
+        let (rows, cols) = self.state.estimate_pane_size();
+        let (ws, terminal, runtime) = Workspace::new_with_argv(
+            initial_cwd,
+            rows,
+            cols,
+            self.state.pane_scrollback_limit_bytes,
+            self.state.host_terminal_theme,
+            self.state.host_terminal_appearance,
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+            self.event_tx.clone(),
+            self.render_notify.clone(),
+            self.render_dirty.clone(),
+            argv,
+            extra_env,
+        )?;
+        let terminal = terminal.with_respawn_shell_on_exit();
+        Ok(self.install_new_workspace(ws, terminal, runtime, focus))
     }
 
     pub(super) fn collect_panes_for_workspace(
@@ -399,6 +435,7 @@ impl App {
                     checkout_path: space.checkout_path.display().to_string(),
                     is_linked_worktree: space.is_linked_worktree,
                 }),
+            tmux_session: self.workspace_tmux_session(index),
         }
     }
 }

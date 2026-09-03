@@ -528,6 +528,7 @@ fn restore_tab(
             .unwrap_or_default();
         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
         let was_imported = imported_runtime.is_some();
+        let tmux_restore_argv = cold_restore_launch_argv(saved_launch_argv.as_deref());
         let pending_native_agent_restore = if was_imported {
             None
         } else {
@@ -588,39 +589,29 @@ fn restore_tab(
                     runtime_context.render_dirty.clone(),
                 )
             } else {
-                TerminalRuntime::spawn_with_initial_history(
+                spawn_restored_runtime(
                     *id,
                     rows,
                     cols,
                     cwd.clone(),
-                    runtime_context.scrollback_limit_bytes,
-                    crate::terminal_theme::TerminalTheme::default(),
-                    None,
-                    runtime_context.shell_config,
+                    runtime_context,
                     &launch_env,
+                    tmux_restore_argv.as_deref(),
                     startup.initial_history_ansi,
-                    runtime_context.events.clone(),
-                    runtime_context.render_notify.clone(),
-                    runtime_context.render_dirty.clone(),
                 )
             }
 
             #[cfg(not(unix))]
             {
-                TerminalRuntime::spawn_with_initial_history(
+                spawn_restored_runtime(
                     *id,
                     rows,
                     cols,
                     cwd.clone(),
-                    runtime_context.scrollback_limit_bytes,
-                    crate::terminal_theme::TerminalTheme::default(),
-                    None,
-                    runtime_context.shell_config,
+                    runtime_context,
                     &launch_env,
+                    tmux_restore_argv.as_deref(),
                     startup.initial_history_ansi,
-                    runtime_context.events.clone(),
-                    runtime_context.render_notify.clone(),
-                    runtime_context.render_dirty.clone(),
                 )
             }
         };
@@ -633,6 +624,8 @@ fn restore_tab(
                     if let Some(argv) = saved_launch_argv {
                         terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
                     }
+                } else if let Some(argv) = tmux_restore_argv {
+                    terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
                 }
                 if let Some(label) = saved_label {
                     terminal.set_manual_label(label);
@@ -733,6 +726,58 @@ fn restore_tab(
             reverse_id_map,
         )),
         failed_imports,
+    )
+}
+
+// Only a tmux attach re-runs on cold restore; the tmux session outlives Herdr.
+fn cold_restore_launch_argv(saved_launch_argv: Option<&[String]>) -> Option<Vec<String>> {
+    saved_launch_argv
+        .filter(|argv| crate::tmux::session_name_from_launch_argv(argv).is_some())
+        .map(<[String]>::to_vec)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_restored_runtime(
+    pane_id: PaneId,
+    rows: u16,
+    cols: u16,
+    cwd: PathBuf,
+    runtime_context: &RestoreRuntimeContext<'_>,
+    launch_env: &PaneLaunchEnv,
+    argv: Option<&[String]>,
+    initial_history_ansi: Option<&str>,
+) -> std::io::Result<TerminalRuntime> {
+    if let Some(argv) = argv {
+        return TerminalRuntime::spawn_argv_command(
+            pane_id,
+            rows,
+            cols,
+            cwd,
+            argv,
+            launch_env,
+            crate::pane::AgentDetection::Enabled,
+            runtime_context.scrollback_limit_bytes,
+            crate::terminal_theme::TerminalTheme::default(),
+            None,
+            runtime_context.events.clone(),
+            runtime_context.render_notify.clone(),
+            runtime_context.render_dirty.clone(),
+        );
+    }
+    TerminalRuntime::spawn_with_initial_history(
+        pane_id,
+        rows,
+        cols,
+        cwd,
+        runtime_context.scrollback_limit_bytes,
+        crate::terminal_theme::TerminalTheme::default(),
+        None,
+        runtime_context.shell_config,
+        launch_env,
+        initial_history_ansi,
+        runtime_context.events.clone(),
+        runtime_context.render_notify.clone(),
+        runtime_context.render_dirty.clone(),
     )
 }
 
@@ -915,6 +960,18 @@ fn collect_ids_inner(node: &Node, ids: &mut Vec<PaneId>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cold_restore_only_reruns_tmux_attach_argv() {
+        let tmux = crate::tmux::attach_argv("api");
+        assert_eq!(
+            super::cold_restore_launch_argv(Some(&tmux)),
+            Some(tmux.clone())
+        );
+        let other = vec!["just".to_string(), "dev".to_string()];
+        assert_eq!(super::cold_restore_launch_argv(Some(&other)), None);
+        assert_eq!(super::cold_restore_launch_argv(None), None);
+    }
+
     use super::*;
 
     fn test_session_path(name: &str) -> String {
