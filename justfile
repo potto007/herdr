@@ -81,6 +81,47 @@ build:
 build:
     cargo build --release --locked
 
+# `herdr update --handoff` only installs binaries from the herdr.dev manifest,
+# and it would replace a local build with upstream's next release. The live
+# handoff step underneath it is exposed as `herdr server live-handoff`, and it
+# does not care where the binary came from. install-handoff does the other
+# half: build, install by atomic rename, then ask the running server to hand
+# its panes to the new binary. Pane processes keep running throughout.
+#
+# The build is labelled `<version>-preview.<short sha>` (plus `-dirty` when the
+# tree has changes), so `herdr --version` tells it apart from upstream and the
+# handoff can be verified to have landed on this exact build. Without a running
+# server the recipe stops after the install.
+
+# Build a labelled release binary, install it, and hand live panes to it (usage: just install-handoff [dest])
+[unix]
+install-handoff dest='~/.local/bin/herdr':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="{{dest}}"
+    dest="${dest/#\~/$HOME}"
+    # build.rs needs Zig for the vendored libghostty-vt; honour $ZIG, then PATH,
+    # then a user-local unpacked release such as ~/.local/zig-0.15.2/zig.
+    if [ -z "${ZIG:-}" ] && ! command -v zig >/dev/null 2>&1; then
+        for candidate in "$HOME"/.local/zig-*/zig; do
+            [ -x "$candidate" ] && export ZIG="$candidate"
+        done
+    fi
+    build_id="$(git rev-parse --short HEAD)"
+    git diff --quiet && git diff --cached --quiet || build_id="${build_id}-dirty"
+    HERDR_BUILD_CHANNEL=preview HERDR_BUILD_ID="$build_id" cargo build --release --locked
+    bin="${CARGO_TARGET_DIR:-target}/release/herdr"
+    version="$("$bin" --version | awk '{print $2}')"
+    install -m 755 "$bin" "$dest.new"
+    mv -f "$dest.new" "$dest"
+    echo "installed herdr $version at $dest"
+    if ! "$dest" status --json 2>/dev/null | grep -q '"server"'; then
+        echo "no running server to hand off; start herdr normally"
+        exit 0
+    fi
+    "$dest" server live-handoff --import-exe "$dest" --expected-version "$version"
+    "$dest" status --json | python3 -c 'import json,sys; s=json.load(sys.stdin)["server"]; print("server now", s["version"], "protocol", s["protocol"])'
+
 # Non-gating full-render scaling profile for background workspaces and active panes
 bench-render-scale:
     cargo test --release --locked --bin herdr render_scale_profile -- --ignored --nocapture --test-threads=1
