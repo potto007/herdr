@@ -972,6 +972,9 @@ pub(crate) struct ClientShellState {
     pub(super) host_appearance: Option<crate::terminal_theme::HostAppearance>,
     pub(super) host_appearance_explicit: bool,
     pub(super) host_background: Option<crate::terminal_theme::RgbColor>,
+    /// Palette-capture baseline gating full theme re-queries; the host
+    /// re-reports its scheme on every focus gain (#3266).
+    pub(super) host_theme_baseline: crate::terminal_theme::HostThemeBaseline,
     pub(super) local_config_diagnostic: Option<String>,
     pub(super) config_diagnostic: Option<String>,
     pub(super) endpoint_error: Option<String>,
@@ -1130,11 +1133,19 @@ impl ClientShellState {
             host_appearance: None,
             host_appearance_explicit: false,
             host_background: None,
+            host_theme_baseline: crate::terminal_theme::HostThemeBaseline::default(),
             config_diagnostic: local_config_diagnostic.clone(),
             local_config_diagnostic,
             endpoint_error: None,
             dismissed_product_announcement: None,
         }
+    }
+
+    /// Record that the startup theme sweep went out before any scheme report,
+    /// so the first host scheme report does not trigger a redundant re-sweep.
+    #[cfg(any(not(windows), test))]
+    pub(crate) fn note_host_theme_query_sent(&mut self) {
+        self.host_theme_baseline.sweep_sent_before_first_report();
     }
 
     pub(super) fn resume_mobile_switcher_if_ready(&mut self) -> bool {

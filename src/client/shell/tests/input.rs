@@ -77,6 +77,47 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
 }
 
 #[test]
+fn unchanged_host_color_scheme_report_does_not_requery_theme() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+
+    // Without a startup sweep, the first report must query the theme.
+    let first = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Dark,
+    )]);
+    assert!(first.query_host_theme);
+
+    // The host re-reports its scheme on every focus-gain appearance query; an
+    // unchanged scheme must not trigger another 256-query palette sweep.
+    let repeat = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Dark,
+    )]);
+    assert!(!repeat.query_host_theme);
+
+    let changed = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Light,
+    )]);
+    assert!(changed.query_host_theme);
+}
+
+#[test]
+fn startup_theme_sweep_seeds_the_scheme_baseline() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.note_host_theme_query_sent();
+
+    // The startup sweep already captured the palette, so the first report only
+    // names the scheme it was captured under.
+    let first = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Dark,
+    )]);
+    assert!(!first.query_host_theme);
+
+    let changed = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Light,
+    )]);
+    assert!(changed.query_host_theme);
+}
+
+#[test]
 fn full_host_palette_response_is_sent_as_one_theme_update() {
     use std::fmt::Write as _;
 

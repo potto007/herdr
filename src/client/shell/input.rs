@@ -255,7 +255,10 @@ impl ClientShellState {
                 RawInputEvent::HostColorSchemeChanged(appearance) => {
                     self.host_appearance = Some(appearance);
                     self.host_appearance_explicit = true;
-                    outcome.query_host_theme = true;
+                    // The host re-reports its scheme on every focus-gain
+                    // appearance query; only a report the captured palette does
+                    // not cover justifies another 256-query sweep (#3266).
+                    outcome.query_host_theme |= self.host_theme_baseline.observe(appearance);
                     if self.config.theme_runtime.auto_switch {
                         self.config.palette = crate::app::client_palette_for_appearance(
                             &self.config.theme_runtime,

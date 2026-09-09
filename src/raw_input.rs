@@ -138,6 +138,7 @@ pub(crate) struct RawInputByteFramer {
     held_pending_host_reply_esc: bool,
     host_color_scheme_change_tracking: bool,
     host_appearance_query_on_focus: bool,
+    host_theme_baseline: crate::terminal_theme::HostThemeBaseline,
     split_coalesced_escape: bool,
 }
 
@@ -194,6 +195,14 @@ impl RawInputByteFramer {
     #[cfg(any(unix, test))]
     pub(crate) fn enable_host_color_scheme_change_tracking(&mut self) {
         self.host_color_scheme_change_tracking = true;
+    }
+
+    /// Record that the startup theme sweep went out before any scheme report,
+    /// so the first report only names the scheme that sweep already captured
+    /// and must not re-arm the reply window (#3266).
+    #[cfg(any(unix, test))]
+    pub(crate) fn host_theme_sweep_sent_before_first_report(&mut self) {
+        self.host_theme_baseline.sweep_sent_before_first_report();
     }
 
     /// Arm the bounded host-reply window when focus gain will emit an appearance query.
@@ -476,9 +485,14 @@ impl RawInputByteFramer {
                 && matches!(event, RawInputEvent::OuterFocusGained)
             {
                 self.host_appearance_query_sent();
-            } else if matches!(event, RawInputEvent::HostColorSchemeChanged(_)) {
+            } else if let RawInputEvent::HostColorSchemeChanged(appearance) = &event {
                 self.host_appearance_reply_awaited = false;
-                if self.host_color_scheme_change_tracking {
+                // The client re-queries the theme only when the reported scheme
+                // is not already covered by the captured palette baseline; the
+                // reply window must arm on exactly the same decision.
+                if self.host_color_scheme_change_tracking
+                    && self.host_theme_baseline.observe(*appearance)
+                {
                     self.host_color_query_sent();
                 }
             }
@@ -2485,6 +2499,61 @@ mod tests {
         assert_eq!(framer.push(b"\x1b[I"), vec![b"\x1b[I".to_vec()]);
         assert!(framer.push(b"\x1b").is_empty());
         assert!(framer.flush_timeout().is_empty());
+        assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
+    }
+
+    #[test]
+    fn unchanged_color_scheme_report_does_not_rearm_reply_hold() {
+        let mut framer = RawInputByteFramer::default();
+        framer.enable_host_color_scheme_change_tracking();
+
+        // The first report establishes the baseline and arms the reply window.
+        assert_eq!(
+            framer.push(GHOSTTY_COLOR_SCHEME_DARK_REPORT),
+            vec![GHOSTTY_COLOR_SCHEME_DARK_REPORT.to_vec()]
+        );
+        assert!(framer.push(b"\x1b").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+        assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
+
+        // The host re-reports its scheme on every focus gain; an unchanged
+        // scheme triggers no palette sweep, so no replies are outstanding and
+        // Escape must not be delayed.
+        assert_eq!(
+            framer.push(GHOSTTY_COLOR_SCHEME_DARK_REPORT),
+            vec![GHOSTTY_COLOR_SCHEME_DARK_REPORT.to_vec()]
+        );
+        assert!(framer.push(b"\x1b").is_empty());
+        assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
+
+        // A genuine scheme change re-queries and re-arms the reply window.
+        assert_eq!(
+            framer.push(GHOSTTY_COLOR_SCHEME_LIGHT_REPORT),
+            vec![GHOSTTY_COLOR_SCHEME_LIGHT_REPORT.to_vec()]
+        );
+        assert!(framer.push(b"\x1b").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+    }
+
+    #[test]
+    fn startup_swept_framer_does_not_rearm_on_first_scheme_report() {
+        let mut framer = RawInputByteFramer::default();
+        framer.host_color_query_sent();
+        framer.enable_host_color_scheme_change_tracking();
+        framer.host_theme_sweep_sent_before_first_report();
+
+        // Give up the startup sweep's own reply window.
+        assert!(framer.push(b"\x1b").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+        assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
+
+        // The first report after the startup sweep only names the scheme that
+        // sweep already captured; it must not re-arm the reply window.
+        assert_eq!(
+            framer.push(GHOSTTY_COLOR_SCHEME_DARK_REPORT),
+            vec![GHOSTTY_COLOR_SCHEME_DARK_REPORT.to_vec()]
+        );
+        assert!(framer.push(b"\x1b").is_empty());
         assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
     }
 

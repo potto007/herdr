@@ -88,6 +88,7 @@ fn unix_stdin_reader_loop(
         framer.host_color_query_sent();
         framer.enable_host_color_scheme_change_tracking();
         framer.enable_host_appearance_query_on_focus();
+        framer.host_theme_sweep_sent_before_first_report();
     }
     if host_cell_size_query_sent {
         framer.host_cell_size_query_sent();

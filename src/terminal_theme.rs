@@ -54,6 +54,44 @@ pub enum DefaultColorKind {
     Background,
 }
 
+/// Tracks whether the host palette captured by the last full theme sweep is
+/// still current, so a re-reported color scheme (the host answers the
+/// focus-gain appearance query on every reveal) does not trigger another
+/// 256-query palette sweep. Hosts that flush one reply per render frame turn
+/// that sweep into a multi-second input freeze (#3266).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HostThemeBaseline {
+    /// No theme sweep has been sent; the first scheme report must trigger one.
+    #[default]
+    Unqueried,
+    /// A sweep was sent before any scheme report (the startup sweep), so the
+    /// next report only names the scheme whose palette that sweep already
+    /// captured.
+    AwaitingFirstReport,
+    /// The palette was captured while the host reported this scheme.
+    Known(HostAppearance),
+}
+
+impl HostThemeBaseline {
+    /// Record that a full theme sweep was sent while the host scheme is still
+    /// unknown; the next scheme report becomes the baseline without a re-sweep.
+    pub fn sweep_sent_before_first_report(&mut self) {
+        *self = Self::AwaitingFirstReport;
+    }
+
+    /// Record a reported host scheme; returns true when the palette must be
+    /// re-swept because the report is not covered by the captured baseline.
+    pub fn observe(&mut self, appearance: HostAppearance) -> bool {
+        let requery = match *self {
+            Self::Unqueried => true,
+            Self::AwaitingFirstReport => false,
+            Self::Known(last) => last != appearance,
+        };
+        *self = Self::Known(appearance);
+        requery
+    }
+}
+
 pub const HOST_COLOR_QUERY_SEQUENCE: &str = "\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
 #[cfg(any(not(windows), test))]
 pub const HOST_COLOR_SCHEME_QUERY_SEQUENCE: &str = "\x1b[?996n";
@@ -173,6 +211,32 @@ fn parse_hex_component(component: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_baseline_requeries_only_on_scheme_changes() {
+        let mut baseline = HostThemeBaseline::default();
+
+        // Without any prior sweep, the first report must query.
+        assert!(baseline.observe(HostAppearance::Dark));
+        // Re-reports of the same scheme arrive on every focus gain; the
+        // captured palette still stands.
+        assert!(!baseline.observe(HostAppearance::Dark));
+        // A genuine change invalidates the baseline.
+        assert!(baseline.observe(HostAppearance::Light));
+        assert!(!baseline.observe(HostAppearance::Light));
+    }
+
+    #[test]
+    fn theme_baseline_seeded_by_startup_sweep_skips_first_report() {
+        let mut baseline = HostThemeBaseline::default();
+        baseline.sweep_sent_before_first_report();
+
+        // The startup sweep already captured the palette for whatever scheme
+        // the host is in, so its first report is the baseline, not a change.
+        assert!(!baseline.observe(HostAppearance::Dark));
+        assert!(!baseline.observe(HostAppearance::Dark));
+        assert!(baseline.observe(HostAppearance::Light));
+    }
 
     #[test]
     fn parses_st_terminated_rgb_response() {

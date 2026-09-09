@@ -56,6 +56,8 @@ pub use startup::{run_client, run_terminal_attach};
 pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
 
 #[cfg(not(windows))]
+use terminal_geometry::host_theme_requery_needed;
+#[cfg(not(windows))]
 use terminal_geometry::query_host_terminal_appearance;
 #[cfg(test)]
 use terminal_geometry::{
@@ -401,6 +403,7 @@ async fn run_client_loop(
         mouse_scroll_lines: config.mouse_scroll_lines,
         remote_image_paste_key: config.remote_image_paste_key,
         redraw_on_focus_gained: config.redraw_on_focus_gained,
+        host_theme_baseline: crate::terminal_theme::HostThemeBaseline::default(),
         repaint_pending: false,
         presentation_frozen: false,
         draw_host_cursor,
@@ -476,8 +479,13 @@ async fn run_client_loop(
 
     if will_query_host_terminal_theme {
         query_host_terminal_theme();
+        // This startup sweep captures the palette before the host reports its
+        // scheme, so the first scheme report is a baseline, not a change; the
+        // stdin framer is seeded the same way via stdin_reader_loop (#3266).
+        state.host_theme_baseline.sweep_sent_before_first_report();
         #[cfg(not(windows))]
-        if state.shell.is_some() {
+        if let Some(shell) = state.shell.as_mut() {
+            shell.note_host_theme_query_sent();
             query_host_terminal_appearance();
         }
     }
@@ -846,7 +854,7 @@ async fn run_client_loop(
                     if crate::raw_input::events_require_host_terminal_appearance_query(&events) {
                         query_host_terminal_appearance();
                     }
-                    if crate::raw_input::events_require_host_terminal_theme_query(&events) {
+                    if host_theme_requery_needed(&mut state.host_theme_baseline, &events) {
                         query_host_terminal_theme();
                     }
                     if let Some((width_px, height_px)) = reported_cell_size_from_events(&events) {

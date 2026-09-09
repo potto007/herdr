@@ -34,6 +34,9 @@ pub(super) struct ClientState {
     pub(super) remote_image_paste_key:
         Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
     pub(super) redraw_on_focus_gained: bool,
+    /// Palette-capture baseline for the direct-attach input path; the host
+    /// re-reports its scheme on every focus gain (#3266).
+    pub(super) host_theme_baseline: crate::terminal_theme::HostThemeBaseline,
     pub(super) repaint_pending: bool,
     /// During a source-off-first handoff the currently blitted frame remains authoritative until
     /// an acknowledged target snapshot/surface pair commits.

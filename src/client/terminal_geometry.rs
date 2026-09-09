@@ -192,6 +192,28 @@ pub(super) fn query_host_terminal_theme() {
     let _ = write_host_terminal_theme_query(io::stdout());
 }
 
+/// The host reports its color scheme in answer to every focus-gain appearance
+/// query, and a full theme re-query costs 256 OSC 4 palette round trips that
+/// hosts flushing one reply per frame stretch into a multi-second input freeze
+/// (#3266). Only a report the captured palette baseline does not cover needs
+/// another sweep.
+#[cfg(any(not(windows), test))]
+pub(super) fn host_theme_requery_needed(
+    baseline: &mut crate::terminal_theme::HostThemeBaseline,
+    events: &[crate::raw_input::RawInputEvent],
+) -> bool {
+    if !crate::raw_input::events_require_host_terminal_theme_query(events) {
+        return false;
+    }
+    let mut needed = false;
+    for event in events {
+        if let crate::raw_input::RawInputEvent::HostColorSchemeChanged(appearance) = event {
+            needed |= baseline.observe(*appearance);
+        }
+    }
+    needed
+}
+
 pub(super) fn should_query_host_terminal_theme() -> bool {
     !cfg!(windows)
 }

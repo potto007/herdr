@@ -139,6 +139,7 @@ mod tests {
             mouse_scroll_lines: 3,
             remote_image_paste_key: None,
             redraw_on_focus_gained: false,
+            host_theme_baseline: Default::default(),
             repaint_pending: false,
             presentation_frozen: false,
             draw_host_cursor: false,
