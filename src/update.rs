@@ -2265,6 +2265,15 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
+    if let Some(repo) = crate::build_info::source_repo() {
+        auto_update_from_source(
+            events,
+            Path::new(repo),
+            crate::build_info::source_upstream(),
+        );
+        return;
+    }
+
     let configured_channel = UpdateChannel::configured();
     if is_homebrew_managed_install() {
         if configured_channel == UpdateChannel::Preview {
@@ -2318,6 +2327,93 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         version: release.label().to_string(),
         install_command: update_install_command().to_string(),
     });
+}
+
+const SOURCE_UPDATE_COMMAND: &str = "just install-handoff";
+const SOURCE_UPDATE_MAX_LISTED_COMMITS: usize = 40;
+
+fn git_output(repo: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Local-build update check: fetch `upstream` in the source checkout and report
+/// the commits the running build does not contain. The build id is the commit
+/// that was built, so a rebased or merged local branch still compares correctly.
+fn auto_update_from_source(
+    events: tokio::sync::mpsc::Sender<crate::events::AppEvent>,
+    repo: &Path,
+    upstream: &str,
+) {
+    let remote = upstream.split('/').next().unwrap_or(upstream);
+    let base = crate::build_info::build_id()
+        .map(|id| id.trim_end_matches("-dirty"))
+        .unwrap_or("HEAD");
+    let log = git_output(repo, &["fetch", "--quiet", remote]).and_then(|_| {
+        git_output(
+            repo,
+            &["log", "--format=%h %s", &format!("{base}..{upstream}")],
+        )
+    });
+    let log = match log {
+        Ok(log) => log,
+        Err(err) => {
+            crate::logging::update_check_failed(&err);
+            return;
+        }
+    };
+    let commits: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
+    if commits.is_empty() {
+        // This build already contains upstream; drop a notice left by an earlier check.
+        let _ = crate::release_notes::save_pending("", "");
+        return;
+    }
+
+    let head = git_output(repo, &["rev-parse", "--short", upstream])
+        .unwrap_or_else(|_| "unknown".to_string());
+    let version = preview_display_version(crate::build_info::BASE_VERSION, &head);
+    crate::logging::update_available(&version);
+    if let Err(e) =
+        crate::release_notes::save_pending(&version, &source_update_notes_body(upstream, &commits))
+    {
+        tracing::warn!("failed to save pending source update notes: {e}");
+    }
+    let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
+        version,
+        install_command: SOURCE_UPDATE_COMMAND.to_string(),
+    });
+}
+
+fn source_update_notes_body(upstream: &str, commits: &[&str]) -> String {
+    let plural = if commits.len() == 1 { "" } else { "s" };
+    let mut body = format!(
+        "### {} commit{plural} on {upstream} not in this build\n",
+        commits.len()
+    );
+    for commit in commits.iter().take(SOURCE_UPDATE_MAX_LISTED_COMMITS) {
+        body.push_str("- ");
+        body.push_str(commit);
+        body.push('\n');
+    }
+    if commits.len() > SOURCE_UPDATE_MAX_LISTED_COMMITS {
+        body.push_str(&format!(
+            "- and {} more\n",
+            commits.len() - SOURCE_UPDATE_MAX_LISTED_COMMITS
+        ));
+    }
+    body
 }
 
 fn auto_update_homebrew(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
@@ -2401,6 +2497,22 @@ fn platform_target() -> (&'static str, &'static str) {
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn source_update_notes_body_lists_commits_and_caps_the_list() {
+        let body = source_update_notes_body("upstream/master", &["abc1234 fix: one"]);
+        assert_eq!(
+            body,
+            "### 1 commit on upstream/master not in this build\n- abc1234 fix: one\n"
+        );
+
+        let many: Vec<String> = (0..45).map(|i| format!("{i:07x} feat: {i}")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        let body = source_update_notes_body("upstream/master", &many);
+        assert!(body.starts_with("### 45 commits on upstream/master not in this build\n"));
+        assert_eq!(body.lines().count(), 1 + 40 + 1);
+        assert!(body.ends_with("- and 5 more\n"));
+    }
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,

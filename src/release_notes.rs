@@ -93,6 +93,8 @@ fn release_notes_from_stored(
         crate::update::Version::parse(current_version),
     ) {
         (Some(stored_version), Some(current_version)) => stored_version > current_version,
+        // Local builds carry `<version>-preview.<sha>` labels on both sides.
+        (None, None) => stored.version != current_version,
         _ => false,
     };
 
@@ -207,6 +209,23 @@ mod tests {
         assert!(notes.preview);
 
         clear_pending_at(&path).unwrap();
+    }
+
+    #[test]
+    fn load_latest_marks_different_unparsable_build_label_as_preview() {
+        let path = std::env::temp_dir().join(format!(
+            "herdr-release-notes-{}-{}.json",
+            std::process::id(),
+            "source"
+        ));
+        save_pending_to_path(&path, "0.9.0-preview.abc1234", "### Upstream\n- One").unwrap();
+
+        let notes = load_latest_from_path(&path, "0.9.0-preview.0000000").expect("latest notes");
+        assert!(notes.preview);
+        let same = load_latest_from_path(&path, "0.9.0-preview.abc1234").expect("latest notes");
+        assert!(!same.preview);
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

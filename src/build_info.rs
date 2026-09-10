@@ -20,6 +20,17 @@ pub fn version() -> String {
     }
 }
 
+/// Checkout a local build came from, when the build embedded one. Update checks
+/// then compare the running commit against `source_upstream()` instead of the
+/// release manifest.
+pub fn source_repo() -> Option<&'static str> {
+    non_empty(option_env!("HERDR_SOURCE_REPO"))
+}
+
+pub fn source_upstream() -> &'static str {
+    non_empty(option_env!("HERDR_SOURCE_UPSTREAM")).unwrap_or("upstream/master")
+}
+
 pub fn is_preview() -> bool {
     channel() == "preview"
 }

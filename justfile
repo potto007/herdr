@@ -80,6 +80,12 @@ build:
 # tree has changes), so `herdr --version` tells it apart from upstream and the
 # handoff can be verified to have landed on this exact build. Without a running
 # server the recipe stops after the install.
+#
+# The build also embeds this checkout path and an upstream ref (default
+# upstream/master, override with HERDR_SOURCE_UPSTREAM). The running server's
+# periodic update check then fetches that ref and raises the usual "update
+# ready" notice listing the upstream commits the build lacks, instead of
+# consulting the herdr.dev manifest.
 
 # Build a labelled release binary, install it, and hand live panes to it (usage: just install-handoff [dest])
 [unix]
@@ -97,7 +103,10 @@ install-handoff dest='~/.local/bin/herdr':
     fi
     build_id="$(git rev-parse --short HEAD)"
     git diff --quiet && git diff --cached --quiet || build_id="${build_id}-dirty"
-    HERDR_BUILD_CHANNEL=preview HERDR_BUILD_ID="$build_id" cargo build --release --locked
+    HERDR_BUILD_CHANNEL=preview HERDR_BUILD_ID="$build_id" \
+        HERDR_SOURCE_REPO="$(git rev-parse --show-toplevel)" \
+        HERDR_SOURCE_UPSTREAM="${HERDR_SOURCE_UPSTREAM:-upstream/master}" \
+        cargo build --release --locked
     bin="${CARGO_TARGET_DIR:-target}/release/herdr"
     version="$("$bin" --version | awk '{print $2}')"
     install -m 755 "$bin" "$dest.new"
