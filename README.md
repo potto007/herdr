@@ -80,6 +80,23 @@ just test        # unit tests
 just check       # formatting, tests, and maintenance checks
 ```
 
+### local builds and live handoff
+
+`herdr update` only installs upstream release binaries and would replace a
+local build. To install a build from this checkout and hand the running
+server's panes to it without restarting them, use the `install-handoff`
+recipe. It needs `just`, the Rust toolchain from `rust-toolchain.toml`, and
+Zig 0.15.2 (`brew install just rustup zig@0.15` on macOS).
+
+```bash
+scripts/setup_local_build_shell.sh   # adds PATH/ZIG exports and a herdr-update alias to ~/.zshrc or ~/.bashrc
+herdr-update                         # build, install, live-handoff from any directory
+```
+
+The build reports as `<version>-preview.<short sha>` so `herdr --version` and
+`herdr status` show which commit is live. Avoid `herdr update` while running
+a local build.
+
 ## license
 
 Herdr is licensed under the [Apache License 2.0](LICENSE).
