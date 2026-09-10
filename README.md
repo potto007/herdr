@@ -97,6 +97,12 @@ The build reports as `<version>-preview.<short sha>` so `herdr --version` and
 `herdr status` show which commit is live. Avoid `herdr update` while running
 a local build.
 
+A local build also embeds its checkout path and an upstream ref (default
+`upstream/master`, override with `HERDR_SOURCE_UPSTREAM` at build time). The
+server's periodic update check fetches that ref instead of the release
+manifest, and the "update ready" notice lists the upstream commits the running
+build lacks. Run `herdr-update` to rebuild on top of them.
+
 ## license
 
 Herdr is licensed under the [Apache License 2.0](LICENSE).
