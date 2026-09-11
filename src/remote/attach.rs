@@ -4,9 +4,9 @@ use super::{args::*, process::wait_with_output_timeout, restart_policy::*, shell
 use base64::Engine as _;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{self, IsTerminal, Write as _};
+use std::io::{self, IsTerminal, Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 
 use interprocess::local_socket::traits::Listener as _;
 #[cfg(all(test, unix))]
@@ -594,6 +594,13 @@ impl RemoteSsh {
             .stderr(Stdio::piped())
             .spawn()?;
 
+        if !self.noninteractive {
+            return normalize_remote_output(output_with_forwarded_stderr(
+                child,
+                Some(script.as_bytes()),
+            )?);
+        }
+
         let write_result = if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(script.as_bytes())
         } else {
@@ -602,11 +609,7 @@ impl RemoteSsh {
                 "ssh bootstrap stdin missing",
             ))
         };
-        let output = if self.noninteractive {
-            wait_with_output_timeout(child, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)?
-        } else {
-            child.wait_with_output()?
-        };
+        let output = wait_with_output_timeout(child, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)?;
         write_result?;
         normalize_remote_output(output)
     }
@@ -623,7 +626,7 @@ impl RemoteSsh {
         let output = if self.noninteractive {
             wait_with_output_timeout(command.spawn()?, NONINTERACTIVE_SSH_COMMAND_TIMEOUT)
         } else {
-            command.output()
+            output_with_forwarded_stderr(command.spawn()?, None)
         }?;
         normalize_remote_output(output)
     }
@@ -683,6 +686,55 @@ impl RemoteSsh {
             )))
         }
     }
+}
+
+// Only interactive setup uses this relay. Background probes retain their
+// capture-only timeout path so SSH diagnostics cannot overwrite the active TUI.
+fn output_with_forwarded_stderr(mut child: Child, stdin: Option<&[u8]>) -> io::Result<Output> {
+    let mut child_stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "ssh command stderr missing"))?;
+    let stderr_relay = thread::spawn(move || -> io::Result<Vec<u8>> {
+        let mut captured = Vec::new();
+        let mut buffer = [0_u8; 8 * 1024];
+        let mut destination = io::stderr();
+
+        loop {
+            let read = child_stderr.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            captured.extend_from_slice(&buffer[..read]);
+            if destination.write_all(&buffer[..read]).is_ok() {
+                let _ = destination.flush();
+            }
+        }
+
+        Ok(captured)
+    });
+
+    let write_result = if let Some(bytes) = stdin {
+        if let Some(mut child_stdin) = child.stdin.take() {
+            child_stdin.write_all(bytes)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "ssh bootstrap stdin missing",
+            ))
+        }
+    } else {
+        Ok(())
+    };
+    let output_result = child.wait_with_output();
+    let stderr_result = stderr_relay
+        .join()
+        .map_err(|_| io::Error::other("ssh stderr relay panicked"))?;
+
+    let mut output = output_result?;
+    write_result?;
+    output.stderr = stderr_result?;
+    Ok(output)
 }
 
 fn normalize_remote_output(mut output: Output) -> io::Result<Output> {
@@ -955,6 +1007,35 @@ fn prepare_windows_remote_herdr(
         remote_herdr,
         stop_after_install_approved: false,
     })
+}
+
+pub(super) fn find_installed_remote_api_herdr(
+    ssh: &RemoteSsh,
+    session: &str,
+) -> io::Result<RemoteHerdr> {
+    let platform = detect_remote_platform(ssh)?;
+    let remote_herdr = RemoteHerdr::for_platform(platform);
+    let candidates = if remote_herdr.platform.is_windows() {
+        vec![remote_herdr]
+    } else {
+        remote_binary_candidates(ssh, &remote_herdr)?
+    };
+    for candidate in candidates {
+        let probe =
+            ssh.framed_user_shell_output(&remote_api_bridge_command(&candidate, session, true))?;
+        if probe.status.code() == Some(255) {
+            return Err(command_failed("remote SSH connection failed", &probe));
+        }
+        if probe.status.success()
+            && String::from_utf8_lossy(&probe.stdout).trim() == "herdr-api-bridge-v1"
+        {
+            return Ok(candidate);
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "remote Herdr does not support machine API forwarding; update Herdr on this machine",
+    ))
 }
 
 fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
@@ -2015,6 +2096,24 @@ fn confirm_remote_install(
     Ok(())
 }
 
+pub(super) fn remote_api_bridge_command(
+    remote_herdr: &RemoteHerdr,
+    session_name: &str,
+    check: bool,
+) -> String {
+    let mut args = vec!["--session", session_name, "remote-api-bridge"];
+    if check {
+        args.push("--check");
+    }
+    match &remote_herdr.executable {
+        RemoteExecutable::PosixShellPath(_) => {
+            posix_remote_output_command(&format!("exec {}", remote_herdr.executable.command(&args)))
+        }
+        RemoteExecutable::WindowsPath(path) => {
+            windows_powershell_streaming_application_command(path, &args)
+        }
+    }
+}
 fn reattach_command(
     program: &str,
     target: &str,
@@ -2066,6 +2165,22 @@ impl SshStdioBridge {
         ssh_options: Option<&ManagedSshOptions>,
         noninteractive: bool,
     ) -> io::Result<Self> {
+        Self::start_command(
+            target,
+            remote_herdr.executable.bridge_command(&session_name),
+            local_socket,
+            ssh_options,
+            noninteractive,
+        )
+    }
+
+    pub(super) fn start_command(
+        target: String,
+        remote_command: String,
+        local_socket: PathBuf,
+        ssh_options: Option<&ManagedSshOptions>,
+        noninteractive: bool,
+    ) -> io::Result<Self> {
         crate::ipc::prepare_socket_path(&local_socket, |path| {
             format!("remote bridge is already listening at {}", path.display())
         })?;
@@ -2103,8 +2218,7 @@ impl SshStdioBridge {
                         if let Err(err) = bridge_connection(
                             stream,
                             &target,
-                            &remote_herdr,
-                            &session_name,
+                            &remote_command,
                             thread_ssh_options.as_ref(),
                             noninteractive,
                             &thread_stop,
@@ -2142,7 +2256,7 @@ impl SshStdioBridge {
         })
     }
 
-    fn reported_failure(&self) -> Option<io::Error> {
+    pub(super) fn reported_failure(&self) -> Option<io::Error> {
         self.failure_rx
             .recv_timeout(BRIDGE_FAILURE_REPORT_TIMEOUT)
             .ok()
@@ -2285,8 +2399,7 @@ pub(crate) fn bridge_upload_cancellation_for_test(
 fn bridge_connection(
     mut stream: crate::ipc::LocalStream,
     target: &str,
-    remote_herdr: &RemoteHerdr,
-    session_name: &str,
+    remote_command: &str,
     ssh_options: Option<&ManagedSshOptions>,
     noninteractive: bool,
     bridge_stop: &Arc<AtomicBool>,
@@ -2300,7 +2413,7 @@ fn bridge_connection(
     command
         .arg("-T")
         .arg(target)
-        .arg(remote_herdr.executable.bridge_command(session_name))
+        .arg(remote_command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(if noninteractive {
@@ -3551,6 +3664,16 @@ mod tests {
                 "$process = Start-Process -FilePath herdr.exe -ArgumentList '--session agents remote-client-bridge' -NoNewWindow -Wait -PassThru -ErrorAction Stop; exit $process.ExitCode",
             ),
             (
+                "API bridge with explicit default session",
+                remote_api_bridge_command(&RemoteHerdr::for_platform(RemotePlatform { os: "windows", arch: "x86_64" }), "default", false),
+                "$process = Start-Process -FilePath herdr.exe -ArgumentList '--session default remote-api-bridge' -NoNewWindow -Wait -PassThru -ErrorAction Stop; exit $process.ExitCode",
+            ),
+            (
+                "API bridge capability probe",
+                remote_api_bridge_command(&RemoteHerdr::for_platform(RemotePlatform { os: "windows", arch: "x86_64" }), "agents", true),
+                "$process = Start-Process -FilePath herdr.exe -ArgumentList '--session agents remote-api-bridge --check' -NoNewWindow -Wait -PassThru -ErrorAction Stop; exit $process.ExitCode",
+            ),
+            (
                 "saved bridge with closed stdin",
                 executable.saved_bridge_command("agents"),
                 "$process = Start-Process -FilePath herdr.exe -ArgumentList '--session agents remote-client-bridge' -NoNewWindow -Wait -PassThru -ErrorAction Stop; exit $process.ExitCode",
@@ -3662,6 +3785,22 @@ mod tests {
                 executable.display().to_string().replace('\'', "''")
             )
         );
+    }
+
+    #[test]
+    fn remote_api_bridge_always_selects_the_saved_session() {
+        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        for session in ["default", "agents"] {
+            assert_eq!(
+                remote_api_bridge_command(&remote_herdr, session, false),
+                posix_remote_output_command(&format!(
+                    "exec \"$HOME/.local/bin/herdr\" --session {session} remote-api-bridge"
+                ))
+            );
+        }
     }
 
     #[test]
