@@ -102,12 +102,18 @@ install-handoff dest='~/.local/bin/herdr':
     set -euo pipefail
     dest="{{dest}}"
     dest="${dest/#\~/$HOME}"
-    # build.rs needs Zig for the vendored libghostty-vt; honour $ZIG, then PATH,
-    # then a user-local unpacked release such as ~/.local/zig-0.15.2/zig.
-    if [ -z "${ZIG:-}" ] && ! command -v zig >/dev/null 2>&1; then
-        for candidate in "$HOME"/.local/zig-*/zig; do
-            [ -x "$candidate" ] && export ZIG="$candidate"
-        done
+    # build.rs needs Zig 0.16.0 for the vendored libghostty-vt; honour $ZIG, then
+    # a PATH zig of that version, then a user-local unpacked release at
+    # ~/.local/zig-0.16.0/zig.
+    zig_version=0.16.0
+    if [ -z "${ZIG:-}" ] && [ "$(zig version 2>/dev/null)" != "$zig_version" ]; then
+        candidate="$HOME/.local/zig-$zig_version/zig"
+        if [ -x "$candidate" ]; then
+            export ZIG="$candidate"
+        else
+            echo "Zig $zig_version not found; set ZIG or unpack it to ${candidate%/zig}" >&2
+            exit 1
+        fi
     fi
     build_id="$(git rev-parse --short HEAD)"
     git diff --quiet && git diff --cached --quiet || build_id="${build_id}-dirty"
