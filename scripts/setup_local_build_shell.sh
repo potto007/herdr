@@ -15,9 +15,9 @@ if [ -z "$rc" ]; then
 fi
 
 lines=(
-    '# herdr local build: rustup via Homebrew, Zig 0.15 for vendored libghostty-vt'
+    '# herdr local build: rustup via Homebrew, Zig 0.16 for vendored libghostty-vt'
     'export PATH="/opt/homebrew/opt/rustup/bin:$PATH"'
-    'export ZIG=/opt/homebrew/opt/zig@0.15/bin/zig'
+    'export ZIG=/opt/homebrew/opt/zig/bin/zig'
     "alias herdr-update='just -f $repo/justfile -d $repo install-handoff'"
 )
 
