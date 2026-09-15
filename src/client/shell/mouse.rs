@@ -508,32 +508,48 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
-    /// Slot the pointer is nearest in the agents panel, as the pane the row
-    /// would land before plus the row to draw the marker on. A `None` pane id
-    /// means the end of the list.
-    fn agent_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
+    /// Where the dragged row would land, as the pane to insert it before plus
+    /// the row to draw the marker on. A `None` pane id means the end of the
+    /// list.
+    ///
+    /// The insert position is resolved against the row the pointer is over
+    /// rather than the nearest boundary. Since the dragged row leaves the list
+    /// before it is reinserted, "before the row directly below me" is the
+    /// position it already occupies, so dropping onto a row further down has to
+    /// land after that row for a one-row drag to move anything.
+    fn agent_drop_target_at(
+        &self,
+        point: (u16, u16),
+        source_pane_id: &str,
+    ) -> Option<(Option<String>, u16)> {
         if self.hits.agent_body.height == 0
             || self.hits.agents.is_empty()
-            || point.1 < self.hits.agent_body.y.saturating_sub(1)
+            || point.1 < self.hits.agent_body.y
             || point.1 >= self.hits.agent_body.bottom()
         {
             return None;
         }
-        let mut slots = self
-            .hits
-            .agents
+        let rows = &self.hits.agents;
+        let source_index = rows
             .iter()
-            .map(|(rect, pane_id)| (Some(pane_id.clone()), rect.y))
-            .collect::<Vec<_>>();
-        let last_bottom = self.hits.agents.last().map(|(rect, _)| rect.bottom())?;
-        if last_bottom < self.hits.agent_body.bottom() {
-            slots.push((None, last_bottom));
+            .position(|(_, pane_id)| pane_id == source_pane_id)?;
+        let hovered = rows
+            .iter()
+            .position(|(rect, _)| point.1 >= rect.y && point.1 < rect.bottom());
+        let Some(hovered) = hovered else {
+            // Below the last row: append.
+            let last_bottom = rows.last().map(|(rect, _)| rect.bottom())?;
+            return Some((None, last_bottom));
+        };
+        let insert_index = if hovered > source_index {
+            hovered + 1
+        } else {
+            hovered
+        };
+        match rows.get(insert_index) {
+            Some((rect, pane_id)) => Some((Some(pane_id.clone()), rect.y)),
+            None => rows.last().map(|(rect, _)| (None, rect.bottom())),
         }
-        slots
-            .into_iter()
-            .enumerate()
-            .min_by_key(|(index, (_, row))| (point.1.abs_diff(*row), *index))
-            .map(|(_, target)| target)
     }
 
     /// Dragging a row is what selects the user-defined order, so the panel
@@ -1198,8 +1214,10 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                Some(ClientChromeDrag::Agent { .. }) => {
-                    let target = self.agent_drop_target_at(point);
+                Some(ClientChromeDrag::Agent {
+                    ref source_pane_id, ..
+                }) => {
+                    let target = self.agent_drop_target_at(point, &source_pane_id.clone());
                     if let Some(ClientChromeDrag::Agent {
                         target: current, ..
                     }) = self.chrome_drag.as_mut()
@@ -1229,7 +1247,7 @@ impl ClientShellState {
                     .max(mouse.row.abs_diff(press.start_row));
                 if delta >= 1 && press.endpoint_id == self.active_endpoint_id {
                     let source_pane_id = press.pane_id.clone();
-                    if let Some(target) = self.agent_drop_target_at(point) {
+                    if let Some(target) = self.agent_drop_target_at(point, &source_pane_id) {
                         self.chrome_drag = Some(ClientChromeDrag::Agent {
                             source_pane_id,
                             target: Some(target),
@@ -1285,7 +1303,7 @@ impl ClientShellState {
                 match drag {
                     ClientChromeDrag::Agent { source_pane_id, .. } => {
                         let before_pane_id = self
-                            .agent_drop_target_at(point)
+                            .agent_drop_target_at(point, &source_pane_id)
                             .and_then(|(before_pane_id, _)| before_pane_id)
                             .filter(|before| before != &source_pane_id);
                         self.set_agent_panel_sort_user_ordered(outcome);

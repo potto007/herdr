@@ -1590,3 +1590,86 @@ fn agent_drag_reorders_through_the_endpoint_and_selects_user_ordered() {
         .join("\n");
     assert!(text.contains("user-ordered"), "frame: {text}");
 }
+
+#[test]
+fn dragging_an_agent_onto_the_next_row_moves_it_past_that_row() {
+    let mut projected = snapshot();
+    for index in 2..=3 {
+        let mut pane = projected.panes[0].clone();
+        pane.pane_id = format!("pane_{index}");
+        pane.focused = false;
+        projected.panes.push(pane);
+    }
+    let agent = |pane: &str, name: &str, focused: bool| ClientShellAgent {
+        pane_id: pane.into(),
+        workspace_id: "ws_1".into(),
+        tab_id: "tab_1".into(),
+        name: Some(name.into()),
+        display_agent: None,
+        agent: Some("pi".into()),
+        title: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent_status: AgentStatus::Idle,
+        state_change_seq: 1,
+        state_labels: Vec::new(),
+        tokens: Vec::new(),
+        focused,
+    };
+    projected.agents = vec![
+        agent("pane_1", "one", true),
+        agent("pane_2", "two", false),
+        agent("pane_3", "three", false),
+    ];
+    projected.agent_order = vec!["pane_1".into(), "pane_2".into(), "pane_3".into()];
+
+    let mut config = Config::default();
+    config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::UserOrdered;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).expect("three agent rows");
+    assert_eq!(state.hits.agents.len(), 3);
+    let first = state.hits.agents[0].0;
+    let second = state.hits.agents[1].0;
+
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: first.x + 2,
+        row: first.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    // Drop onto the row directly below. Inserting *before* that row would be the
+    // position the dragged row already holds, so this has to land after it.
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: second.x + 2,
+        row: second.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let release =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: second.x + 2,
+            row: second.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+
+    let moved = release
+        .actions
+        .iter()
+        .find_map(|action| match action {
+            ClientShellAction::Endpoint { request, .. } => match &request.method {
+                crate::api::schema::Method::AgentMove(params) => Some(params.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("a one-row drag must send a move");
+    assert_eq!(moved.pane_id, "pane_1");
+    assert_eq!(
+        moved.before_pane_id.as_deref(),
+        Some("pane_3"),
+        "dropping on the next row must land after it, not back where it started"
+    );
+}
