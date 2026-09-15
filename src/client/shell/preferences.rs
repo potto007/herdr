@@ -24,6 +24,10 @@ pub(super) struct ClientChromePreferences {
     pub(super) sidebar_collapsed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) agent_panel_sort: Option<crate::config::AgentPanelSortConfig>,
+    /// A row was dragged at some point, so the header toggle offers
+    /// `user_ordered` even after the client switched away from it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) agent_user_order_set: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) collapsed_groups: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

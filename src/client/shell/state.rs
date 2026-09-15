@@ -866,6 +866,7 @@ pub(crate) struct ClientShellState {
     pub(super) sidebar_section_split: f32,
     pub(super) sidebar_section_split_manual: bool,
     pub(super) agent_panel_sort_manual: bool,
+    pub(super) agent_user_order_set: bool,
     pub(super) last_sidebar_divider_click: Option<std::time::Instant>,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
@@ -978,6 +979,8 @@ pub(super) struct WorkspaceEntry {
 impl ClientShellState {
     pub(crate) fn new(mut config: ClientShellConfig) -> Self {
         let preferences = config.preferences.clone();
+        let configured_user_order =
+            config.agent_panel_sort == crate::config::AgentPanelSortConfig::UserOrdered;
         let local_config_diagnostic = config.startup_config_diagnostic.take();
         let overlay = config
             .startup_onboarding
@@ -1032,6 +1035,10 @@ impl ClientShellState {
             sidebar_section_split,
             sidebar_section_split_manual: preferences.sidebar_section_split.is_some(),
             agent_panel_sort_manual: preferences.agent_panel_sort.is_some(),
+            agent_user_order_set: preferences.agent_user_order_set
+                || preferences.agent_panel_sort
+                    == Some(crate::config::AgentPanelSortConfig::UserOrdered)
+                || configured_user_order,
             last_sidebar_divider_click: None,
             chrome_drag: None,
             workspace_press: None,

@@ -809,6 +809,111 @@ fn agent_sort_toggle_is_client_local_and_persists_per_endpoint() {
 }
 
 #[test]
+fn agent_sort_toggle_offers_user_ordered_once_a_row_was_dragged() {
+    use crate::config::AgentPanelSortConfig as Sort;
+    let path = std::env::temp_dir().join(format!(
+        "herdr-shell-agent-sort-cycle-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos()
+    ));
+    let mut projected = snapshot();
+    let mut pane = projected.panes[0].clone();
+    pane.pane_id = "pane_2".into();
+    pane.focused = false;
+    projected.panes.push(pane);
+    for (pane_id, focused) in [("pane_1", true), ("pane_2", false)] {
+        projected.agents.push(ClientShellAgent {
+            pane_id: pane_id.into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some(pane_id.into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 1,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused,
+        });
+    }
+    projected.agent_order = vec!["pane_1".into(), "pane_2".into()];
+    let config =
+        ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).expect("agent sidebar frame");
+    let mouse = |kind, column, row| {
+        RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    let toggle = state.hits.agent_sort_toggle;
+    let click_toggle = |state: &mut ClientShellState| {
+        state.handle_raw_events(vec![mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x,
+            toggle.y,
+        )]);
+        state.config.agent_panel_sort
+    };
+
+    // Nothing has been dragged yet: two-way cycle.
+    assert_eq!(click_toggle(&mut state), Sort::Priority);
+    assert_eq!(click_toggle(&mut state), Sort::Spaces);
+
+    // Drag the first row past the second.
+    let first = state.hits.agents[0].0;
+    let second = state.hits.agents[1].0;
+    state.handle_raw_events(vec![
+        mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            first.x + 2,
+            first.y,
+        ),
+        mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            first.x + 2,
+            second.y,
+        ),
+        mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            first.x + 2,
+            second.bottom(),
+        ),
+        mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            first.x + 2,
+            second.bottom(),
+        ),
+    ]);
+    assert_eq!(state.config.agent_panel_sort, Sort::UserOrdered);
+
+    // Now the toggle walks all three.
+    assert_eq!(click_toggle(&mut state), Sort::Spaces);
+    assert_eq!(click_toggle(&mut state), Sort::Priority);
+    assert_eq!(click_toggle(&mut state), Sort::UserOrdered);
+    assert_eq!(click_toggle(&mut state), Sort::Spaces);
+
+    // The three-way cycle survives a client restart even when it left user-ordered.
+    let reloaded = ClientShellState::new(
+        ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone()),
+    );
+    assert_eq!(reloaded.config.agent_panel_sort, Sort::Spaces);
+    assert!(reloaded.agent_user_order_set);
+    std::fs::remove_file(path).expect("remove agent sort preferences");
+}
+
+#[test]
 fn workspace_actions_preserve_selected_target_and_client_confirmation() {
     let mut snapshot = snapshot();
     let mut second = snapshot.workspaces[0].clone();

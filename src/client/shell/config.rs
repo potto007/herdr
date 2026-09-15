@@ -59,6 +59,7 @@ impl ClientShellState {
             agent_panel_sort: self
                 .agent_panel_sort_manual
                 .then_some(self.config.agent_panel_sort),
+            agent_user_order_set: self.agent_user_order_set,
             collapsed_groups,
             remote_collapsed_groups,
         };

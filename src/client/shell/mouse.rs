@@ -555,6 +555,7 @@ impl ClientShellState {
     /// Dragging a row is what selects the user-defined order, so the panel
     /// leaves "grouped"/"priority" as soon as a drop lands.
     fn set_agent_panel_sort_user_ordered(&mut self, outcome: &mut ClientShellInput) {
+        self.agent_user_order_set = true;
         if self.config.agent_panel_sort == crate::config::AgentPanelSortConfig::UserOrdered {
             return;
         }
@@ -2080,11 +2081,16 @@ impl ClientShellState {
                     return;
                 }
                 if super::contains(self.hits.agent_sort_toggle, point) {
-                    // user-ordered is only reachable by dragging a row, so the
-                    // toggle leaves it rather than offering an empty order.
+                    // user-ordered only joins the cycle once a drag has
+                    // produced an order; before that it would show nothing new.
                     let sort = match self.config.agent_panel_sort {
                         crate::config::AgentPanelSortConfig::Spaces => {
                             crate::config::AgentPanelSortConfig::Priority
+                        }
+                        crate::config::AgentPanelSortConfig::Priority
+                            if self.agent_user_order_set =>
+                        {
+                            crate::config::AgentPanelSortConfig::UserOrdered
                         }
                         crate::config::AgentPanelSortConfig::Priority
                         | crate::config::AgentPanelSortConfig::UserOrdered => {
