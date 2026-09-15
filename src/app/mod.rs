@@ -678,6 +678,14 @@ impl App {
         app.state.selected = snapshot
             .selected
             .min(app.state.workspaces.len().saturating_sub(1));
+        // A handoff replaces the server under a live session, so the agents
+        // panel order has to survive it the same way it survives a restart.
+        if !snapshot.agent_user_order.is_empty() {
+            app.state
+                .agent_user_order
+                .clone_from(&snapshot.agent_user_order);
+            app.state.agent_panel_sort = state::AgentPanelSort::UserOrdered;
+        }
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -1339,6 +1347,40 @@ mod tests {
             Some(expected_version.as_str())
         );
         assert!(app.event_rx.try_recv().is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handoff_restores_the_user_defined_agent_order() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let snapshot = crate::persist::SessionSnapshot {
+            version: 0,
+            workspaces: Vec::new(),
+            active: None,
+            selected: 0,
+            sidebar_width: None,
+            sidebar_section_split: None,
+            collapsed_space_keys: Default::default(),
+            agent_user_order: vec!["w1:p1".into(), "w2:p1".into()],
+        };
+        let mut imports = std::collections::HashMap::new();
+        let app = App::new_from_handoff(
+            &Config::default(),
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+            &snapshot,
+            &mut imports,
+        )
+        .expect("handoff app");
+
+        // A handoff swaps the server under a live session, so losing the order
+        // here would silently reset the panel on every update.
+        assert_eq!(app.state.agent_user_order, snapshot.agent_user_order);
+        assert_eq!(
+            app.state.agent_panel_sort,
+            state::AgentPanelSort::UserOrdered
+        );
     }
 
     #[test]
