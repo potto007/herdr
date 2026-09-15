@@ -47,6 +47,7 @@ impl App {
                 &self.terminal_runtimes,
                 self.state.active,
                 self.state.selected,
+                self.state.agent_user_order.clone(),
             );
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)

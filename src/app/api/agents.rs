@@ -3,8 +3,8 @@ use std::time::Duration;
 use bytes::Bytes;
 
 use crate::api::schema::{
-    AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
-    PaneReadResult, ResponseResult,
+    AgentMoveParams, AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
+    AgentTarget, EventData, EventEnvelope, EventKind, PaneReadResult, ResponseResult,
 };
 use crate::app::App;
 
@@ -40,6 +40,86 @@ impl App {
                 agents: self.collect_agent_infos(),
             },
         )
+    }
+
+    /// Place one agent row before another and switch the panel to the
+    /// user-defined order. The stored order covers every agent pane currently
+    /// in the panel, so a later `spaces`/`priority` pass can be resumed without
+    /// losing what the user arranged.
+    pub(super) fn handle_agent_move(&mut self, id: String, params: AgentMoveParams) -> String {
+        let Some(pane_id) = self.resolve_agent_panel_pane_id(&params.pane_id) else {
+            return encode_error(
+                id,
+                "pane_not_found",
+                format!("pane {} not found", params.pane_id),
+            );
+        };
+        let before_pane_id = match params.before_pane_id {
+            Some(requested) => {
+                let Some(resolved) = self.resolve_agent_panel_pane_id(&requested) else {
+                    return encode_error(
+                        id,
+                        "pane_not_found",
+                        format!("pane {requested} not found"),
+                    );
+                };
+                if resolved == pane_id {
+                    return encode_error(
+                        id,
+                        "agent_move_failed",
+                        "before_pane_id must not be the moved pane",
+                    );
+                }
+                Some(resolved)
+            }
+            None => None,
+        };
+
+        let mut order = self.agent_panel_pane_ids();
+        order.retain(|candidate| candidate != &pane_id);
+        let insert_idx = before_pane_id
+            .and_then(|before| order.iter().position(|candidate| candidate == &before))
+            .unwrap_or(order.len());
+        order.insert(insert_idx, pane_id);
+
+        let changed = self.state.agent_panel_sort != crate::app::state::AgentPanelSort::UserOrdered
+            || self.state.agent_user_order != order;
+        if changed {
+            self.state.agent_panel_sort = crate::app::state::AgentPanelSort::UserOrdered;
+            self.state.agent_user_order = order.clone();
+            self.state.mark_session_dirty();
+            self.emit_event(EventEnvelope {
+                event: EventKind::AgentReordered,
+                data: EventData::AgentReordered { pane_ids: order },
+            });
+        }
+
+        encode_success(
+            id,
+            ResponseResult::AgentList {
+                agents: self.collect_agent_infos(),
+            },
+        )
+    }
+
+    /// Public pane ids of every row the agents panel currently shows, in the
+    /// order it shows them.
+    fn agent_panel_pane_ids(&self) -> Vec<String> {
+        crate::ui::agent_panel_entries_from(&self.state, &self.terminal_runtimes)
+            .into_iter()
+            .filter_map(|entry| self.public_pane_id(entry.ws_idx, entry.pane_id))
+            .collect()
+    }
+
+    /// Accept any pane id spelling the API takes, but only for panes that the
+    /// agents panel actually lists, and normalize to the public id the stored
+    /// order uses.
+    fn resolve_agent_panel_pane_id(&self, requested: &str) -> Option<String> {
+        let (ws_idx, pane_id) = self.parse_pane_id(requested)?;
+        let public_id = self.public_pane_id(ws_idx, pane_id)?;
+        self.agent_panel_pane_ids()
+            .into_iter()
+            .find(|candidate| candidate == &public_id)
     }
 
     pub(super) fn handle_agent_get(&mut self, id: String, target: AgentTarget) -> String {
@@ -415,6 +495,141 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app
+    }
+
+    fn app_with_agent_rows(labels: &[&str]) -> (App, crate::api::EventHub) {
+        let event_hub = crate::api::EventHub::default();
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            api_rx,
+            event_hub.clone(),
+        );
+        app.state.workspaces = labels
+            .iter()
+            .map(|label| Workspace::test_new(label))
+            .collect();
+        app.state.ensure_test_terminals();
+        // Only panes carrying an agent name or detected kind become panel rows.
+        for (ws_idx, label) in labels.iter().enumerate() {
+            let pane_id = app.state.workspaces[ws_idx].tabs[0].root_pane;
+            let terminal_id = app.state.workspaces[ws_idx].tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
+            terminal.set_agent_name((*label).to_string());
+            terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
+        }
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        (app, event_hub)
+    }
+
+    #[test]
+    fn agent_move_reorders_rows_and_selects_the_user_defined_sort() {
+        let (mut app, event_hub) = app_with_agent_rows(&["one", "two", "three"]);
+        let rows = app.agent_panel_pane_ids();
+        assert_eq!(rows.len(), 3, "each workspace contributes one agent row");
+
+        let response = app.handle_agent_move(
+            "req".into(),
+            AgentMoveParams {
+                pane_id: rows[0].clone(),
+                before_pane_id: Some(rows[2].clone()),
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(matches!(success.result, ResponseResult::AgentList { .. }));
+        assert_eq!(
+            app.state.agent_panel_sort,
+            crate::app::state::AgentPanelSort::UserOrdered
+        );
+        let expected = vec![rows[1].clone(), rows[0].clone(), rows[2].clone()];
+        assert_eq!(app.state.agent_user_order, expected);
+        // The projection the endpoint sends clients must agree with the stored order.
+        assert_eq!(app.agent_panel_pane_ids(), expected);
+        assert!(event_hub.events_after(0).iter().any(|(_, event)| {
+            matches!(&event.data, EventData::AgentReordered { pane_ids } if pane_ids == &expected)
+        }));
+    }
+
+    #[test]
+    fn agent_move_without_before_pane_moves_to_the_end() {
+        let (mut app, _event_hub) = app_with_agent_rows(&["one", "two", "three"]);
+        let rows = app.agent_panel_pane_ids();
+
+        app.handle_agent_move(
+            "req".into(),
+            AgentMoveParams {
+                pane_id: rows[0].clone(),
+                before_pane_id: None,
+            },
+        );
+
+        assert_eq!(
+            app.agent_panel_pane_ids(),
+            vec![rows[1].clone(), rows[2].clone(), rows[0].clone()]
+        );
+    }
+
+    #[test]
+    fn agent_move_rejects_unknown_and_self_referential_targets() {
+        let (mut app, _event_hub) = app_with_agent_rows(&["one", "two"]);
+        let rows = app.agent_panel_pane_ids();
+
+        for params in [
+            AgentMoveParams {
+                pane_id: "nope:p1".into(),
+                before_pane_id: None,
+            },
+            AgentMoveParams {
+                pane_id: rows[0].clone(),
+                before_pane_id: Some("nope:p1".into()),
+            },
+            AgentMoveParams {
+                pane_id: rows[0].clone(),
+                before_pane_id: Some(rows[0].clone()),
+            },
+        ] {
+            let response = app.handle_agent_move("req".into(), params);
+            assert!(
+                serde_json::from_str::<SuccessResponse>(&response).is_err(),
+                "expected an error response, got {response}"
+            );
+        }
+        assert!(app.state.agent_user_order.is_empty());
+        assert_eq!(
+            app.state.agent_panel_sort,
+            crate::app::state::AgentPanelSort::Spaces
+        );
+    }
+
+    #[test]
+    fn agent_user_order_survives_a_closed_pane() {
+        let (mut app, _event_hub) = app_with_agent_rows(&["one", "two", "three"]);
+        let rows = app.agent_panel_pane_ids();
+        app.handle_agent_move(
+            "req".into(),
+            AgentMoveParams {
+                pane_id: rows[2].clone(),
+                before_pane_id: Some(rows[0].clone()),
+            },
+        );
+        assert_eq!(app.agent_panel_pane_ids()[0], rows[2]);
+
+        // Dropping the middle workspace leaves a stale id in the stored order.
+        app.state.workspaces.remove(1);
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        assert_eq!(
+            app.agent_panel_pane_ids(),
+            vec![rows[2].clone(), rows[0].clone()],
+            "a stale id must not strand the remaining order"
+        );
     }
 
     fn start_deferred_agent_prompt(

@@ -49,6 +49,15 @@ pub struct AgentRenameParams {
     pub name: Option<String>,
 }
 
+/// Place one agent row before another in the user-defined agents panel order.
+/// Omitting `before_pane_id` moves the row to the end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentMoveParams {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_pane_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentViewSetParams {
     pub source: String,

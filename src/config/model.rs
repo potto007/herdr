@@ -99,6 +99,9 @@ pub enum AgentPanelSortConfig {
     #[serde(alias = "workspaces")]
     Spaces,
     Priority,
+    /// Explicit order set by dragging rows in the agents panel.
+    #[serde(rename = "user_ordered", alias = "manual")]
+    UserOrdered,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -955,7 +958,8 @@ pub struct UiConfig {
     /// Format for the outer terminal window title. Empty leaves the title alone.
     /// Default: "{hostname}: {workspace}".
     pub window_title: String,
-    /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
+    /// Agent sidebar ordering. Saved values are "spaces", "priority", or
+    /// "user_ordered". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
     #[serde(rename = "agent_panel_scope")]

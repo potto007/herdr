@@ -120,6 +120,7 @@ impl ActiveSubscription {
         };
 
         match subscription {
+            Subscription::AgentReordered {} => Ok(event_subscription(EventKind::AgentReordered)),
             Subscription::WorkspaceCreated {} => {
                 Ok(event_subscription(EventKind::WorkspaceCreated))
             }

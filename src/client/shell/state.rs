@@ -234,6 +234,13 @@ pub(super) struct ClientWorkspacePress {
     pub(super) start_row: u16,
 }
 
+pub(super) struct ClientAgentPress {
+    pub(super) endpoint_id: ClientEndpointId,
+    pub(super) pane_id: String,
+    pub(super) start_column: u16,
+    pub(super) start_row: u16,
+}
+
 pub(super) struct ClientTabPress {
     pub(super) tab_id: String,
     pub(super) workspace_id: String,
@@ -263,6 +270,12 @@ pub(super) enum ClientChromeDrag {
         tab_id: String,
         workspace_id: String,
         insert_index: Option<usize>,
+    },
+    Agent {
+        source_pane_id: String,
+        /// Pane the row would land before, and the row it would be drawn on.
+        /// `None` pane id means "after the last row".
+        target: Option<(Option<String>, u16)>,
     },
     Workspace {
         source_workspace_id: String,
@@ -913,6 +926,7 @@ pub(crate) struct ClientShellState {
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
     pub(super) tab_press: Option<ClientTabPress>,
+    pub(super) agent_press: Option<ClientAgentPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
     pub(super) workspace_scroll: usize,
@@ -1078,6 +1092,7 @@ impl ClientShellState {
             chrome_drag: None,
             workspace_press: None,
             tab_press: None,
+            agent_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
             workspace_scroll: 0,

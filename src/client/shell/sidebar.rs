@@ -421,6 +421,8 @@ pub(crate) fn render_sidebar(
         config,
         state.agent_scroll,
         hits,
+        state.dragged_agent_pane_id,
+        state.agent_drop_indicator_row,
     );
 
     hits.sidebar_toggle = Rect::new(

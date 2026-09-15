@@ -67,19 +67,36 @@ pub(crate) fn apply_agent_view(app: &AppState, entries: &mut Vec<AgentPanelEntry
         }
     }
 
-    if matches!(
-        app.agent_panel_sort,
-        crate::app::state::AgentPanelSort::Priority
-    ) {
-        entries.sort_by_key(|entry| {
-            (
-                std::cmp::Reverse(super::api_helpers::tab_attention_priority(
-                    entry.state,
-                    entry.seen,
-                )),
-                std::cmp::Reverse(entry.last_agent_state_change_seq),
-            )
-        });
+    match app.agent_panel_sort {
+        crate::app::state::AgentPanelSort::Priority => {
+            entries.sort_by_key(|entry| {
+                (
+                    std::cmp::Reverse(super::api_helpers::tab_attention_priority(
+                        entry.state,
+                        entry.seen,
+                    )),
+                    std::cmp::Reverse(entry.last_agent_state_change_seq),
+                )
+            });
+        }
+        crate::app::state::AgentPanelSort::UserOrdered => {
+            let positions = app
+                .agent_user_order
+                .iter()
+                .enumerate()
+                .map(|(index, pane_id)| (pane_id.as_str(), index))
+                .collect::<std::collections::HashMap<_, _>>();
+            // Stable sort keeps panes the user never placed in their derived
+            // space order, appended after everything they did place. The key
+            // allocates a public pane id, and this runs per snapshot build, so
+            // cache it rather than rebuilding it on every comparison.
+            entries.sort_by_cached_key(|entry| {
+                public_pane_id(app, entry)
+                    .and_then(|pane_id| positions.get(pane_id.as_str()).copied())
+                    .unwrap_or(usize::MAX)
+            });
+        }
+        crate::app::state::AgentPanelSort::Spaces => {}
     }
 }
 

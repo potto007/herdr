@@ -508,6 +508,46 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
+    /// Slot the pointer is nearest in the agents panel, as the pane the row
+    /// would land before plus the row to draw the marker on. A `None` pane id
+    /// means the end of the list.
+    fn agent_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
+        if self.hits.agent_body.height == 0
+            || self.hits.agents.is_empty()
+            || point.1 < self.hits.agent_body.y.saturating_sub(1)
+            || point.1 >= self.hits.agent_body.bottom()
+        {
+            return None;
+        }
+        let mut slots = self
+            .hits
+            .agents
+            .iter()
+            .map(|(rect, pane_id)| (Some(pane_id.clone()), rect.y))
+            .collect::<Vec<_>>();
+        let last_bottom = self.hits.agents.last().map(|(rect, _)| rect.bottom())?;
+        if last_bottom < self.hits.agent_body.bottom() {
+            slots.push((None, last_bottom));
+        }
+        slots
+            .into_iter()
+            .enumerate()
+            .min_by_key(|(index, (_, row))| (point.1.abs_diff(*row), *index))
+            .map(|(_, target)| target)
+    }
+
+    /// Dragging a row is what selects the user-defined order, so the panel
+    /// leaves "grouped"/"priority" as soon as a drop lands.
+    fn set_agent_panel_sort_user_ordered(&mut self, outcome: &mut ClientShellInput) {
+        if self.config.agent_panel_sort == crate::config::AgentPanelSortConfig::UserOrdered {
+            return;
+        }
+        self.config.agent_panel_sort = crate::config::AgentPanelSortConfig::UserOrdered;
+        self.agent_panel_sort_manual = true;
+        self.agent_scroll = 0;
+        self.persist_chrome_preferences(outcome);
+    }
+
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
@@ -1158,6 +1198,17 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                Some(ClientChromeDrag::Agent { .. }) => {
+                    let target = self.agent_drop_target_at(point);
+                    if let Some(ClientChromeDrag::Agent {
+                        target: current, ..
+                    }) = self.chrome_drag.as_mut()
+                    {
+                        *current = target;
+                    }
+                    outcome.repaint = true;
+                    return;
+                }
                 Some(ClientChromeDrag::Workspace { .. }) => {
                     let target = self.workspace_drop_target_at(point);
                     if let Some(ClientChromeDrag::Workspace {
@@ -1170,6 +1221,23 @@ impl ClientShellState {
                     return;
                 }
                 None => {}
+            }
+            if let Some(press) = self.agent_press.as_ref() {
+                let delta = mouse
+                    .column
+                    .abs_diff(press.start_column)
+                    .max(mouse.row.abs_diff(press.start_row));
+                if delta >= 1 && press.endpoint_id == self.active_endpoint_id {
+                    let source_pane_id = press.pane_id.clone();
+                    if let Some(target) = self.agent_drop_target_at(point) {
+                        self.chrome_drag = Some(ClientChromeDrag::Agent {
+                            source_pane_id,
+                            target: Some(target),
+                        });
+                        outcome.repaint = true;
+                    }
+                }
+                return;
             }
             if let Some(press) = self.workspace_press.as_ref() {
                 let delta = mouse
@@ -1213,7 +1281,26 @@ impl ClientShellState {
             if let Some(drag) = self.chrome_drag.take() {
                 self.workspace_press = None;
                 self.tab_press = None;
+                self.agent_press = None;
                 match drag {
+                    ClientChromeDrag::Agent { source_pane_id, .. } => {
+                        let before_pane_id = self
+                            .agent_drop_target_at(point)
+                            .and_then(|(before_pane_id, _)| before_pane_id)
+                            .filter(|before| before != &source_pane_id);
+                        self.set_agent_panel_sort_user_ordered(outcome);
+                        self.push_endpoint_method(
+                            crate::api::schema::Method::AgentMove(
+                                crate::api::schema::AgentMoveParams {
+                                    pane_id: source_pane_id,
+                                    before_pane_id,
+                                },
+                            ),
+                            outcome,
+                        );
+                        outcome.repaint = true;
+                        return;
+                    }
                     ClientChromeDrag::Tab {
                         tab_id,
                         workspace_id,
@@ -1330,6 +1417,15 @@ impl ClientShellState {
                 self.push_endpoint_method(
                     crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget {
                         tab_id: press.tab_id,
+                    }),
+                    outcome,
+                );
+                return;
+            }
+            if let Some(press) = self.agent_press.take() {
+                self.push_endpoint_method(
+                    crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                        pane_id: press.pane_id,
                     }),
                     outcome,
                 );
@@ -1889,6 +1985,7 @@ impl ClientShellState {
                 let previous_pane_click = self.last_pane_click.take();
                 self.workspace_press = None;
                 self.tab_press = None;
+                self.agent_press = None;
                 self.chrome_drag = None;
                 if super::contains(self.hits.sidebar_divider, point)
                     && !super::contains(self.hits.sidebar_toggle, point)
@@ -1965,11 +2062,14 @@ impl ClientShellState {
                     return;
                 }
                 if super::contains(self.hits.agent_sort_toggle, point) {
+                    // user-ordered is only reachable by dragging a row, so the
+                    // toggle leaves it rather than offering an empty order.
                     let sort = match self.config.agent_panel_sort {
                         crate::config::AgentPanelSortConfig::Spaces => {
                             crate::config::AgentPanelSortConfig::Priority
                         }
-                        crate::config::AgentPanelSortConfig::Priority => {
+                        crate::config::AgentPanelSortConfig::Priority
+                        | crate::config::AgentPanelSortConfig::UserOrdered => {
                             crate::config::AgentPanelSortConfig::Spaces
                         }
                     };
@@ -2102,12 +2202,14 @@ impl ClientShellState {
                     .find(|(rect, _)| super::contains(*rect, point))
                     .map(|(_, pane_id)| pane_id.clone());
                 if let Some(pane_id) = agent_pane_id {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
-                            pane_id,
-                        }),
-                        outcome,
-                    );
+                    // Focus on release instead, so a press that turns into a
+                    // reorder drag does not also switch panes.
+                    self.agent_press = Some(super::state::ClientAgentPress {
+                        endpoint_id: self.active_endpoint_id.clone(),
+                        pane_id,
+                        start_column: mouse.column,
+                        start_row: mouse.row,
+                    });
                     return;
                 }
                 let scrollbar_hit = self

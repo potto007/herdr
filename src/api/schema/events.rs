@@ -28,6 +28,8 @@ pub enum Subscription {
     WorkspaceMoved {},
     #[serde(rename = "workspace.reordered")]
     WorkspaceReordered {},
+    #[serde(rename = "agent.reordered")]
+    AgentReordered {},
     #[serde(rename = "workspace.closed")]
     WorkspaceClosed {},
     #[serde(rename = "workspace.focused")]
@@ -200,6 +202,7 @@ pub enum EventKind {
     WorkspaceMoved,
     WorkspaceReordered,
     WorkspaceFocused,
+    AgentReordered,
     WorktreeCreated,
     WorktreeOpened,
     WorktreeRemoved,
@@ -228,6 +231,7 @@ impl EventKind {
             EventKind::WorkspaceMetadataUpdated => "workspace.metadata_updated",
             EventKind::WorkspaceClosed => "workspace.closed",
             EventKind::WorkspaceRenamed => "workspace.renamed",
+            EventKind::AgentReordered => "agent.reordered",
             EventKind::WorkspaceMoved => "workspace.moved",
             EventKind::WorkspaceReordered => "workspace.reordered",
             EventKind::WorkspaceFocused => "workspace.focused",
@@ -263,6 +267,7 @@ pub const KNOWN_EVENT_KINDS: &[EventKind] = &[
     EventKind::WorkspaceMoved,
     EventKind::WorkspaceReordered,
     EventKind::WorkspaceFocused,
+    EventKind::AgentReordered,
     EventKind::WorktreeCreated,
     EventKind::WorktreeOpened,
     EventKind::WorktreeRemoved,
@@ -291,6 +296,7 @@ pub const PLUGIN_HOOK_EVENT_KINDS: &[EventKind] = &[
     EventKind::WorkspaceMoved,
     EventKind::WorkspaceReordered,
     EventKind::WorkspaceFocused,
+    EventKind::AgentReordered,
     EventKind::WorktreeCreated,
     EventKind::WorktreeOpened,
     EventKind::WorktreeRemoved,
@@ -451,6 +457,9 @@ pub enum EventData {
     },
     WorkspaceFocused {
         workspace_id: String,
+    },
+    AgentReordered {
+        pane_ids: Vec<String>,
     },
     WorktreeCreated {
         workspace: WorkspaceInfo,

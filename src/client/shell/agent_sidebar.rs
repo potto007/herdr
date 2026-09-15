@@ -21,7 +21,12 @@ pub(super) fn ordered_agent_pane_ids(
     snapshot: &ClientShellSnapshot,
     sort: crate::config::AgentPanelSortConfig,
 ) -> Vec<String> {
-    if snapshot.agent_view_label.is_some() {
+    // A projected view and the user-defined order are both decided by the
+    // endpoint, so take its order rather than re-deriving one locally. Older
+    // endpoints send the same derived order they always did.
+    if snapshot.agent_view_label.is_some()
+        || sort == crate::config::AgentPanelSortConfig::UserOrdered
+    {
         return snapshot
             .agent_order
             .iter()
@@ -49,6 +54,7 @@ pub(super) fn ordered_agent_pane_ids(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)] // one render entry point, not a shared helper
 pub(super) fn render_agent_panel(
     buffer: &mut Buffer,
     area: Rect,
@@ -56,6 +62,8 @@ pub(super) fn render_agent_panel(
     config: &ClientShellConfig,
     agent_scroll: &mut usize,
     hits: &mut ShellHitMap,
+    dragged_pane_id: Option<&str>,
+    drop_indicator_row: Option<u16>,
 ) {
     if !render_agent_panel_header(
         buffer,
@@ -82,9 +90,25 @@ pub(super) fn render_agent_panel(
         |row| row.rows.len(),
         |buffer, rect, row, hits| {
             hits.agents.push((rect, row.pane_id.clone()));
+            if dragged_pane_id == Some(row.pane_id.as_str()) {
+                buffer.set_style(rect, Style::default().bg(config.palette.surface1));
+            }
             render_agent_row(buffer, rect, row, config);
         },
     );
+
+    if let Some(row) = drop_indicator_row.filter(|row| {
+        *row >= hits.agent_body.y && *row <= hits.agent_body.bottom().saturating_sub(1)
+    }) {
+        put_text(
+            buffer,
+            hits.agent_body.x,
+            row,
+            hits.agent_body.width,
+            &"─".repeat(hits.agent_body.width as usize),
+            Style::default().fg(config.palette.accent),
+        );
+    }
 }
 
 pub(super) fn render_agent_panel_header(
@@ -121,6 +145,7 @@ pub(super) fn render_agent_panel_header(
     let sort_label = agent_view_label.unwrap_or(match config.agent_panel_sort {
         crate::config::AgentPanelSortConfig::Spaces => "grouped",
         crate::config::AgentPanelSortConfig::Priority => "priority",
+        crate::config::AgentPanelSortConfig::UserOrdered => "user-ordered",
     });
     let sort_width = display_width(sort_label).min(area.width as usize) as u16;
     let sort_rect = Rect::new(

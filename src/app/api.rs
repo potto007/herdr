@@ -1060,6 +1060,7 @@ impl App {
             Method::AgentGet(target) => return self.handle_agent_get(request.id, target),
             Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),
             Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
+            Method::AgentMove(params) => return self.handle_agent_move(request.id, params),
             Method::AgentViewSet(params) => return self.handle_agent_view_set(request.id, params),
             Method::AgentViewClear(params) => {
                 return self.handle_agent_view_clear(request.id, params);

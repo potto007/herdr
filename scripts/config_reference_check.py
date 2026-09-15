@@ -185,6 +185,7 @@ def parse_enum_body(
     variants: list[str] = []
     index = start
     depth = 0
+    pending_attrs: list[str] = []
 
     while index < len(lines):
         stripped = lines[index].strip()
@@ -192,10 +193,20 @@ def parse_enum_body(
             index += 1
             break
 
-        if depth == 0 and not stripped.startswith(("#[", "///")):
+        if depth == 0 and stripped.startswith("#["):
+            pending_attrs.append(stripped)
+        elif depth == 0 and not stripped.startswith("///"):
             match = VARIANT_RE.match(stripped)
             if match:
-                variants.append(apply_rename_all(match.group(1), rename_all or "lowercase"))
+                # An explicit per-variant rename wins over rename_all, the same
+                # way it does for struct fields.
+                variants.append(
+                    serde_field_name(
+                        match.group(1), pending_attrs, rename_all or "lowercase"
+                    )
+                )
+            if stripped:
+                pending_attrs = []
         depth += stripped.count("{") - stripped.count("}")
         index += 1
 

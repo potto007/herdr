@@ -26,6 +26,11 @@ pub struct SessionSnapshot {
     pub sidebar_section_split: Option<f32>,
     #[serde(default)]
     pub collapsed_space_keys: std::collections::HashSet<String>,
+    /// Public pane ids in the order the user dragged them into in the agents
+    /// panel. Empty means the panel never left a derived order. Clients persist
+    /// the chosen sort mode themselves, so only the order belongs here.
+    #[serde(default)]
+    pub agent_user_order: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,6 +189,8 @@ struct RawSessionSnapshot {
     sidebar_section_split: Option<f32>,
     #[serde(default)]
     collapsed_space_keys: std::collections::HashSet<String>,
+    #[serde(default)]
+    agent_user_order: Vec<String>,
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
@@ -199,6 +206,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         sidebar_width: raw.sidebar_width,
         sidebar_section_split: raw.sidebar_section_split,
         collapsed_space_keys: raw.collapsed_space_keys,
+        agent_user_order: raw.agent_user_order,
     })
 }
 
@@ -258,6 +266,7 @@ pub fn capture(
     terminal_runtimes: &TerminalRuntimeRegistry,
     active: Option<usize>,
     selected: usize,
+    agent_user_order: Vec<String>,
 ) -> SessionSnapshot {
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
@@ -270,6 +279,7 @@ pub fn capture(
         sidebar_width: None,
         sidebar_section_split: None,
         collapsed_space_keys: std::collections::HashSet::new(),
+        agent_user_order,
     }
 }
 
@@ -535,6 +545,7 @@ mod tests {
             terminal_runtimes,
             state.active,
             state.selected,
+            state.agent_user_order.clone(),
         )
     }
 
@@ -599,6 +610,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            agent_user_order: Vec::new(),
         };
         let json = serde_json::to_string(&snap).unwrap();
         let restored = parse_snapshot(&json).unwrap();
@@ -686,6 +698,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            agent_user_order: Vec::new(),
             version: SNAPSHOT_VERSION,
         };
 
@@ -1253,6 +1266,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            agent_user_order: Vec::new(),
         };
 
         let json = serde_json::to_string(&snap).unwrap();

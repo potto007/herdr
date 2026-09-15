@@ -107,7 +107,7 @@ Raw socket method names use dot notation:
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.graphics.info`, `pane.graphics.set`, `pane.graphics.clear`, `pane.graphics.stream`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
 | Popup | `popup.close` |
 | Layout | `layout.export`, `layout.apply`, `layout.set_split_ratio` |
-| Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.view.set`, `agent.view.clear` |
+| Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.move`, `agent.start`, `agent.view.set`, `agent.view.clear` |
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
 | Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
@@ -476,6 +476,19 @@ stable, evaluated in order, and accept `asc` or `desc`. Missing values stay
 after present values. When `sort` is omitted, the existing
 `ui.agent_panel_sort` policy remains active. A custom sort temporarily replaces
 that policy without rewriting config.
+
+### agent.move
+
+`agent.move` takes `pane_id` and an optional `before_pane_id`, placing that
+agent row before the named one, or at the end when `before_pane_id` is omitted.
+Both panes must currently appear in the agents panel. The call switches the
+panel to the user-defined order, stores the full resulting order, persists it
+with the session, and emits `agent.reordered` carrying the new `pane_ids`.
+
+The stored order is server-owned, so every attached client sees it. A client
+still chooses which ordering it displays, and one configured for `spaces` or
+`priority` sorts locally and ignores this order. Ids that stop resolving, for
+example when their pane closes, are skipped rather than stranding the rest.
 
 `source` identifies the owner. Plugins use `plugin:<HERDR_PLUGIN_ID>`; Herdr
 rejects plugin-owned sets when that plugin is missing or disabled. Other callers

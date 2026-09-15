@@ -254,6 +254,25 @@
             },
             {
               "properties": {
+                "pane_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "agent_reordered",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_ids"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "type": {
                   "const": "worktree_created",
                   "type": "string"
@@ -736,6 +755,7 @@
             "workspace_moved",
             "workspace_reordered",
             "workspace_focused",
+            "agent_reordered",
             "worktree_created",
             "worktree_opened",
             "worktree_removed",
@@ -1228,6 +1248,24 @@
     },
     "request": {
       "$defs": {
+        "AgentMoveParams": {
+          "description": "Place one agent row before another in the user-defined agents panel order.\nOmitting `before_pane_id` moves the row to the end.",
+          "properties": {
+            "before_pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "AgentPromptParams": {
           "properties": {
             "target": {
@@ -4049,6 +4087,18 @@
             {
               "properties": {
                 "type": {
+                  "const": "agent.reordered",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
                   "const": "workspace.closed",
                   "type": "string"
                 }
@@ -5450,6 +5500,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentRenameParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.move",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMoveParams"
             }
           },
           "required": [
@@ -7111,6 +7177,25 @@
             },
             {
               "properties": {
+                "pane_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "agent_reordered",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_ids"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "type": {
                   "const": "worktree_created",
                   "type": "string"
@@ -7608,6 +7693,7 @@
             "workspace_moved",
             "workspace_reordered",
             "workspace_focused",
+            "agent_reordered",
             "worktree_created",
             "worktree_opened",
             "worktree_removed",

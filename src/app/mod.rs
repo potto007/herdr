@@ -193,6 +193,7 @@ fn agent_panel_sort_from_config(
     match sort {
         crate::config::AgentPanelSortConfig::Spaces => state::AgentPanelSort::Spaces,
         crate::config::AgentPanelSortConfig::Priority => state::AgentPanelSort::Priority,
+        crate::config::AgentPanelSortConfig::UserOrdered => state::AgentPanelSort::UserOrdered,
     }
 }
 
@@ -370,6 +371,7 @@ impl App {
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let mut restored_agent_user_order = Vec::new();
         let (workspaces, active, selected) = if !policy.restore_session {
             (Vec::new(), None, 0)
         } else if let Some(snap) = crate::persist::load() {
@@ -398,6 +400,7 @@ impl App {
                 (Vec::new(), None, 0)
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
+                restored_agent_user_order = snap.agent_user_order.clone();
                 let active = snap.active.filter(|&i| i < ws.len());
                 let selected = snap.selected.min(ws.len().saturating_sub(1));
                 (ws, active, selected)
@@ -406,7 +409,14 @@ impl App {
             (Vec::new(), None, 0)
         };
 
-        let agent_panel_sort = agent_panel_sort_from_config(config.ui.agent_panel_sort);
+        // An order only exists because the user dragged rows, so restoring one
+        // restores the user-defined mode with it. Clients still decide what they
+        // display from their own persisted sort preference.
+        let agent_panel_sort = if restored_agent_user_order.is_empty() {
+            agent_panel_sort_from_config(config.ui.agent_panel_sort)
+        } else {
+            state::AgentPanelSort::UserOrdered
+        };
 
         let worktree_directory =
             crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
@@ -481,6 +491,7 @@ impl App {
             prefix_mods,
             headless_size: config.headless_size(),
             agent_panel_sort,
+            agent_user_order: restored_agent_user_order,
             agent_view_override: None,
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
@@ -844,8 +855,13 @@ impl App {
                     &config.ui.tab_bar_right_separator,
                 );
                 self.configure_window_title(&config.ui.window_title);
-                self.state.agent_panel_sort =
-                    agent_panel_sort_from_config(config.ui.agent_panel_sort);
+                // Same rule as startup: a stored order keeps the endpoint
+                // projecting it, and a reload must not discard it. Clients that
+                // prefer grouped or priority sort locally and ignore this order.
+                if self.state.agent_user_order.is_empty() {
+                    self.state.agent_panel_sort =
+                        agent_panel_sort_from_config(config.ui.agent_panel_sort);
+                }
                 self.state.sidebar_agents = config.ui.sidebar.agents.clone();
                 self.state.sidebar_spaces = config.ui.sidebar.spaces.clone();
                 self.state.sound = config.ui.sound.clone();

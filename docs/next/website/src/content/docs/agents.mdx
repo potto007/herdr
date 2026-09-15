@@ -97,6 +97,14 @@ A blocked agent makes its pane, tab, and workspace look blocked. A working agent
 
 This is the main Herdr workflow: start several agents, let them work in parallel, and use the sidebar to see which project needs a decision, which one is still running, and which one is ready to review.
 
+## Agents panel order
+
+The label at the right of the `agents` header shows how the panel is ordered. Clicking it switches between `grouped`, which follows space order, and `priority`, which floats whatever needs attention to the top.
+
+Drag an agent row to place it yourself, the same way you drag a space. The panel switches to `user-ordered` and keeps that arrangement, including across a restart. Clicking the header label leaves `user-ordered` and returns to `grouped`; dragging a row again restores your order.
+
+The order belongs to the server, so every client attached to that Herdr sees the same arrangement. Which of the three orderings a client displays is its own choice, so one client can stay on `priority` while another shows your order. Set a starting point with `ui.agent_panel_sort = "spaces" | "priority" | "user_ordered"`.
+
 ## Direct integrations
 
 Install the integration for each agent you use to give Herdr hook or plugin reports instead of screen detection alone:

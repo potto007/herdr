@@ -514,9 +514,21 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
         Some("pane_2")
     );
 
+    // Focus lands on release so a press that becomes a reorder drag does not
+    // also switch panes.
     let first = state.hits.agents[0].0;
-    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+    let press = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
+        column: first.x,
+        row: first.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(
+        press.actions.is_empty(),
+        "pressing an agent row should not focus before release"
+    );
+    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
         column: first.x,
         row: first.y,
         modifiers: KeyModifiers::empty(),
@@ -1461,4 +1473,120 @@ fn semantic_notifications_use_client_policy_and_stable_navigation_targets() {
     assert!(repaint);
     assert!(state.visible_notification.is_none());
     assert_eq!(state.pending_notifications.len(), 1);
+}
+
+#[test]
+fn agent_drag_reorders_through_the_endpoint_and_selects_user_ordered() {
+    let mut projected = snapshot();
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.pane_id = "pane_2".into();
+    second_pane.focused = false;
+    projected.panes.push(second_pane);
+    projected.agents = vec![
+        ClientShellAgent {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("one".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 1,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: true,
+        },
+        ClientShellAgent {
+            pane_id: "pane_2".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: Some("two".into()),
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: AgentStatus::Idle,
+            state_change_seq: 2,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: false,
+        },
+    ];
+    projected.agent_order = vec!["pane_1".into(), "pane_2".into()];
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).expect("two agent rows");
+    assert_eq!(state.hits.agents.len(), 2);
+    let first = state.hits.agents[0].0;
+    let second = state.hits.agents[1].0;
+
+    let down = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: first.x + 2,
+        row: first.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(
+        down.actions.is_empty(),
+        "press alone must not focus or move"
+    );
+
+    let drag = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: second.x + 2,
+        row: second.bottom(),
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(drag.repaint);
+    assert!(matches!(
+        state.chrome_drag,
+        Some(ClientChromeDrag::Agent {
+            ref source_pane_id,
+            target: Some(_),
+        }) if source_pane_id == "pane_1"
+    ));
+
+    let release =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: second.x + 2,
+            row: second.bottom(),
+            modifiers: KeyModifiers::empty(),
+        })]);
+    assert!(
+        release.actions.iter().any(|action| matches!(
+            action,
+            ClientShellAction::Endpoint { request, .. }
+                if matches!(
+                    &request.method,
+                    crate::api::schema::Method::AgentMove(params)
+                        if params.pane_id == "pane_1" && params.before_pane_id.is_none()
+                )
+        )),
+        "drop past the last row moves the agent to the end"
+    );
+    assert_eq!(
+        state.config.agent_panel_sort,
+        crate::config::AgentPanelSortConfig::UserOrdered,
+        "dragging selects the user-defined order"
+    );
+
+    let frame = state.compose(106, 30).expect("agents after drag");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("user-ordered"), "frame: {text}");
 }

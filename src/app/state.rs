@@ -692,6 +692,7 @@ pub enum AgentPanelSort {
     #[default]
     Spaces,
     Priority,
+    UserOrdered,
 }
 
 #[derive(Debug, Clone)]
@@ -825,6 +826,10 @@ pub struct AppState {
     /// Virtual terminal size (columns, rows) used when no client is attached.
     pub(crate) headless_size: (u16, u16),
     pub agent_panel_sort: AgentPanelSort,
+    /// Public pane ids in the order set by dragging rows in the agents panel.
+    /// Only load-bearing while `agent_panel_sort` is `UserOrdered`; ids that no
+    /// longer resolve are ignored so a closed pane cannot strand the order.
+    pub agent_user_order: Vec<String>,
     /// Transient session-wide projection override for the built-in Agents view.
     pub agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
     pub sidebar_agents: crate::config::AgentsSidebarConfig,
@@ -1053,6 +1058,7 @@ impl AppState {
                 crate::config::DEFAULT_HEADLESS_ROWS,
             ),
             agent_panel_sort: AgentPanelSort::Spaces,
+            agent_user_order: Vec::new(),
             agent_view_override: None,
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),
             sidebar_spaces: crate::config::SpacesSidebarConfig::default(),
