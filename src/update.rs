@@ -2375,8 +2375,10 @@ fn auto_update_from_source(
     };
     let commits: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
     if commits.is_empty() {
-        // This build already contains upstream; drop a notice left by an earlier check.
+        // This build already contains upstream. Drop the notice an earlier
+        // check saved, and the copy this process loaded from it at startup.
         let _ = crate::release_notes::save_pending("", "");
+        let _ = events.blocking_send(crate::events::AppEvent::UpdateCleared);
         return;
     }
 

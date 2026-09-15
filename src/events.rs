@@ -131,6 +131,9 @@ pub enum AppEvent {
         version: String,
         install_command: String,
     },
+    /// The update check found nothing newer than the running build. Drops a
+    /// notice this process inherited from an older build's saved release notes.
+    UpdateCleared,
     /// Remote agent detection manifest update check finished.
     AgentDetectionManifestsUpdated {
         updated: Vec<crate::detect::manifest_update::ManifestUpdateCommit>,

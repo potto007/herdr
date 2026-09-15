@@ -1469,6 +1469,12 @@ impl AppState {
                 }
                 Vec::new()
             }
+            AppEvent::UpdateCleared => {
+                self.update_available = None;
+                self.latest_release_notes = None;
+                self.latest_release_notes_available = false;
+                Vec::new()
+            }
             AppEvent::AgentDetectionManifestsUpdated {
                 updated, status, ..
             } => {
