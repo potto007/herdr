@@ -37,8 +37,8 @@ mod server_not_running;
 mod spec;
 mod status;
 mod tab;
-mod tmux;
 mod target;
+mod tmux;
 mod workspace;
 mod worktree;
 
