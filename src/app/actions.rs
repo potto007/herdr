@@ -1471,8 +1471,6 @@ impl AppState {
             }
             AppEvent::UpdateCleared => {
                 self.update_available = None;
-                self.latest_release_notes = None;
-                self.latest_release_notes_available = false;
                 Vec::new()
             }
             AppEvent::AgentDetectionManifestsUpdated {

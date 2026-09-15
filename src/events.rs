@@ -132,7 +132,8 @@ pub enum AppEvent {
         install_command: String,
     },
     /// The update check found nothing newer than the running build. Drops a
-    /// notice this process inherited from an older build's saved release notes.
+    /// notice this process inherited from an older build's saved release
+    /// notes and re-reads whatever notes remain for the current version.
     UpdateCleared,
     /// Remote agent detection manifest update check finished.
     AgentDetectionManifestsUpdated {

@@ -311,10 +311,12 @@ impl App {
                 None
             };
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
+        let update_cleared = matches!(ev, AppEvent::UpdateCleared);
         let previous_toast = self.state.toast.clone();
         let mut pane_updates = self.state.handle_app_event(ev);
-        if update_ready.is_some() {
+        if update_ready.is_some() || update_cleared {
             self.state.latest_release_notes = crate::release_notes::load_latest();
+            self.state.latest_release_notes_available = self.state.latest_release_notes.is_some();
         }
         if checkpointed_pane_exit {
             self.finish_checkpointed_pane_exit();

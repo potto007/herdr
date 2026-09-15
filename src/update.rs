@@ -2375,9 +2375,12 @@ fn auto_update_from_source(
     };
     let commits: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
     if commits.is_empty() {
-        // This build already contains upstream. Drop the notice an earlier
-        // check saved, and the copy this process loaded from it at startup.
-        let _ = crate::release_notes::save_pending("", "");
+        // This build already contains upstream. Notes an earlier check saved
+        // describe what this build gained, so keep them as this version's
+        // release notes and drop the update notice startup loaded from them.
+        if let Err(e) = crate::release_notes::adopt_pending_as_current() {
+            tracing::warn!("failed to adopt pending source update notes: {e}");
+        }
         let _ = events.blocking_send(crate::events::AppEvent::UpdateCleared);
         return;
     }

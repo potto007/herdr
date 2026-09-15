@@ -105,6 +105,36 @@ fn release_notes_from_stored(
     })
 }
 
+/// Re-file notes saved for an update this build has since absorbed as the
+/// notes for the current version, the same state `herdr update` leaves
+/// behind: no update pending, but "what's new" still shows what arrived.
+/// Returns whether anything was rewritten.
+pub fn adopt_pending_as_current() -> std::io::Result<bool> {
+    adopt_pending_as_current_at(&pending_path(), &crate::build_info::version())
+}
+
+fn adopt_pending_as_current_at(path: &Path, current_version: &str) -> std::io::Result<bool> {
+    let Some(stored) = load_stored_from_path(path) else {
+        return Ok(false);
+    };
+    if stored.version == current_version || normalize_body(&stored.body).is_empty() {
+        return Ok(false);
+    }
+    write_stored_to_path(
+        path,
+        &StoredReleaseNotes {
+            version: current_version.to_string(),
+            // Source-check notes are phrased against the build they were
+            // written for; the same commit list is what this build gained.
+            body: stored
+                .body
+                .replacen(" not in this build", " new in this build", 1),
+            show_on_startup: false,
+        },
+    )?;
+    Ok(true)
+}
+
 pub fn mark_current_version_seen() -> std::io::Result<()> {
     mark_current_version_seen_at(&pending_path(), &crate::build_info::version())
 }

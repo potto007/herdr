@@ -1572,21 +1572,33 @@ mod tests {
     }
 
     #[test]
-    fn update_cleared_drops_a_notice_loaded_at_startup() {
+    fn update_cleared_keeps_absorbed_notes_as_whats_new() {
         let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("update-cleared-drops-startup-notice");
+        let path = temp_config_path("update-cleared-keeps-absorbed-notes");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
-        // A previous build's check left notes for a version this build already
-        // contains; startup loads them before the check can delete the file.
-        crate::release_notes::save_pending("99.99.99", "### Changed\n- One").unwrap();
+        // A previous build's check left notes for commits this build already
+        // contains; startup loads them before the check can re-file them.
+        crate::release_notes::save_pending(
+            "99.99.99",
+            "### 1 commit on upstream/master not in this build\n- abc1234 fix: one",
+        )
+        .unwrap();
         let mut app = test_app();
         assert_eq!(app.state.update_available.as_deref(), Some("99.99.99"));
 
+        assert!(crate::release_notes::adopt_pending_as_current().unwrap());
         app.handle_internal_event(AppEvent::UpdateCleared);
 
         assert_eq!(app.state.update_available, None);
-        assert!(app.state.latest_release_notes.is_none());
-        assert!(!app.state.latest_release_notes_available);
+        assert!(app.state.latest_release_notes_available);
+        let notes = app.state.latest_release_notes.as_ref().unwrap();
+        assert_eq!(notes.version, crate::build_info::version());
+        assert!(!notes.preview);
+        assert!(notes
+            .body
+            .starts_with("### 1 commit on upstream/master new in this build\n"));
+        // Nothing to adopt a second time.
+        assert!(!crate::release_notes::adopt_pending_as_current().unwrap());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
