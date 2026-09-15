@@ -27,9 +27,12 @@ fn agent_move_server() -> HeadlessServer {
     server
 }
 
-fn move_agent(server: &mut HeadlessServer, pane_id: &str, before_pane_id: Option<&str>) {
+/// Moves one row and returns whether the server considered the frame dirty.
+/// A reorder that does not report a render is invisible until some unrelated
+/// event repaints, so callers assert on this.
+fn move_agent(server: &mut HeadlessServer, pane_id: &str, before_pane_id: Option<&str>) -> bool {
     let (respond_to, response_rx) = std::sync::mpsc::channel();
-    server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
+    let changed = server.handle_api_request_with_shutdown_check(crate::api::ApiRequestMessage {
         request: crate::api::schema::Request {
             id: "move-agent".into(),
             method: crate::api::schema::Method::AgentMove(AgentMoveParams {
@@ -44,6 +47,7 @@ fn move_agent(server: &mut HeadlessServer, pane_id: &str, before_pane_id: Option
     let response = response_rx.recv().expect("agent move response");
     serde_json::from_str::<SuccessResponse>(&response)
         .unwrap_or_else(|_| panic!("agent move failed: {response}"));
+    changed
 }
 
 #[tokio::test]
@@ -69,7 +73,10 @@ async fn every_agent_move_reaches_attached_clients() {
     drain(&render_rx, &mut surface_revisions);
 
     // First move: the panel leaves its derived order.
-    move_agent(&mut server, &order[0], None);
+    assert!(
+        move_agent(&mut server, &order[0], None),
+        "a reorder must mark the frame dirty"
+    );
     server.render_and_stream();
     drain(&render_rx, &mut surface_revisions);
     let first = client_shell_snapshot(read_server_message(control_rx.recv().unwrap()));
@@ -80,7 +87,10 @@ async fn every_agent_move_reaches_attached_clients() {
     );
 
     // Second move: already user-ordered, so only the order itself changes.
-    move_agent(&mut server, &order[0], Some(&order[1]));
+    assert!(
+        move_agent(&mut server, &order[0], Some(&order[1])),
+        "a later reorder must still mark the frame dirty"
+    );
     server.render_and_stream();
     drain(&render_rx, &mut surface_revisions);
     let second = client_shell_snapshot(read_server_message(control_rx.recv().unwrap()));
