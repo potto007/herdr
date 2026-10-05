@@ -126,7 +126,7 @@ install-handoff dest='~/.local/bin/herdr':
     install -m 755 "$bin" "$dest.new"
     mv -f "$dest.new" "$dest"
     echo "installed herdr $version at $dest"
-    if ! "$dest" status --json 2>/dev/null | grep -q '"server"'; then
+    if ! "$dest" status --json 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["server"]["running"] else 1)' 2>/dev/null; then
         echo "no running server to hand off; start herdr normally"
         exit 0
     fi
