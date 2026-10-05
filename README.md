@@ -86,7 +86,7 @@ just check       # formatting, tests, and maintenance checks
 local build. To install a build from this checkout and hand the running
 server's panes to it without restarting them, use the `install-handoff`
 recipe. It needs `just`, the Rust toolchain from `rust-toolchain.toml`, and
-Zig 0.15.2 (`brew install just rustup zig@0.15` on macOS).
+Zig 0.16.0 (`brew install just rustup zig` on macOS).
 
 ```bash
 scripts/setup_local_build_shell.sh   # adds PATH/ZIG exports and a herdr-update alias to ~/.zshrc or ~/.bashrc
